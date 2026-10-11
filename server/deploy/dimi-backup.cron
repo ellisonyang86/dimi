@@ -1,0 +1,6 @@
+# DIMI · 围城 V0.9 — SQLite 每日备份 cron
+# 安装（以 dimi 用户）：crontab -e -u dimi，粘贴下面这一行
+# 备份逻辑见 scripts/backup.mjs（VACUUM INTO 一致性快照，保留最近 30 份，输出到 server/data/backups/）
+17 3 * * * cd /opt/dimi/server && /usr/bin/npm run backup >> /var/log/dimi-backup.log 2>&1
+# 注意：/var/log/dimi-backup.log 需 dimi 用户可写：
+#   sudo touch /var/log/dimi-backup.log && sudo chown dimi:dimi /var/log/dimi-backup.log

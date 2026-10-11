@@ -1,0 +1,12 @@
+# 构建产物 / 分发包
+dist/*.apk
+node_modules/
+
+# 环境密钥（模板文件如 *.example / *.template 除外）
+.env
+.env.*
+
+# 系统与日志
+.DS_Store
+Thumbs.db
+*.log

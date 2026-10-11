@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 适老：允许缩放，不设 maximum-scale / user-scalable=no -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIMI · 围城 — 家乡页</title>
+<!-- 分享友好：OG 标签；接口返回封面后由 JS 覆写 og:image/title，无封面时保持纯色占位块（见 .cover-fallback） -->
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="DIMI · 围城">
+<meta property="og:title" id="ogTitle" content="DIMI · 围城 — 家乡页">
+<meta property="og:description" id="ogDesc" content="老乡共建的家乡页，看看同乡们分享的家乡事">
+<style>
+  /* 莫兰迪灰绿体系：主色 #47685C / 米白底 #F5F3EE / 雾杏 #C9A188 */
+  /* 适老对比度：辅助文字统一 #6f6a60（米白底上 ≥4.5:1） */
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  body { background:#F5F3EE; min-height:100vh; }
+  .wrap { max-width:420px; margin:0 auto; min-height:100vh; background:#F5F3EE; padding-bottom:96px;  }
+  .muted { color:#6f6a60; font-size:13px; }
+  /* 封面区 */
+  .cover { position:relative; height:220px; overflow:hidden; background:#47685C; }
+  .cover img { position:absolute; left:0; top:0; width:100%; height:100%; object-fit:cover; }
+  .cover-fallback { position:absolute; left:0; top:0; right:0; bottom:0; background:#47685C; color:#fff; }
+  .cover-fallback .cf-in { position:absolute; left:0; top:0; right:0; bottom:0; text-align:center; padding-top:78px; }
+  .cover-fallback .mark { font-size:40px; margin-bottom:8px; opacity:.9; }
+  .cover-fallback .name { font-size:22px; font-weight:700; letter-spacing:1px; }
+  .cover .shade { position:absolute; left:0; top:0; right:0; bottom:0; background:linear-gradient(180deg,rgba(0,0,0,0) 40%,rgba(0,0,0,.35)); }
+  .cover .town { position:absolute; left:16px; bottom:14px; color:#fff; }
+  .cover .town .t { font-size:22px; font-weight:700; letter-spacing:.5px; text-shadow:0 1px 4px rgba(0,0,0,.35); }
+  .cover .town .n { font-size:14px; opacity:.95; margin-top:3px; }
+  /* 卡片 */
+  .card { background:#fff; border-radius:12px; margin:12px; padding:14px;  }
+  .intro { font-size:14px; color:#4a4a45; line-height:1.9; }
+  .fellow-line { font-size:14px; color:#47685C; font-weight:600; }
+  .fellow-line b { font-size:20px; margin-right:4px; }
+  /* 内容列表 */
+  .sec-title { display:table; width:100%; margin:16px 0 4px; padding:0 12px; box-sizing:border-box; }
+  .sec-title .t { display:table-cell; font-size:15px; font-weight:700; color:#2f3a35; }
+  .sec-title .muted { display:table-cell; text-align:right; vertical-align:bottom; }
+  .item { background:#fff; border-radius:12px; margin:10px 12px 0; overflow:hidden;  }
+  /* 16:9 图区：padding-top hack（老 WebView 不支持 aspect-ratio） */
+  .item .pic { position:relative; width:100%; height:0; padding-top:56.25%; background:#e7e2d8; overflow:hidden; }
+  .item .pic img { position:absolute; left:0; top:0; width:100%; height:100%; object-fit:cover; }
+  /* 图片水印 */
+  .wm { position:absolute; right:8px; bottom:6px; font-size:12px; color:rgba(255,255,255,.95); background:rgba(0,0,0,.35); padding:2px 8px; border-radius:8px; }
+  .item .body { padding:12px 12px 10px; }
+  .item .title { font-size:15px; font-weight:600; color:#26262a; line-height:1.5; }
+  .item .meta { margin-top:8px; font-size:13px; color:#6f6a60; line-height:1.8; }
+  .tag { display:inline-block; background:#f0ece2; color:#755c3f; border-radius:6px; padding:2px 8px; font-size:12px; margin-right:8px; }
+  .meta .nick { color:#567064; margin-right:8px; }
+  /* 空态 */
+  .empty { text-align:center; padding:36px 24px; color:#6f6a60; font-size:14px; line-height:2; }
+  .empty .ic { font-size:40px; margin-bottom:8px; }
+  /* 免责声明（法务 §15：页面常驻） */
+  .disclaimer { margin:18px 16px 0; font-size:13px; color:#6f6a60; line-height:1.9; }
+  .footer { text-align:center; font-size:13px; color:#6f6a60; margin-top:14px; padding:0 20px; line-height:1.8; }
+  /* 底部固定引导条 */
+  .cta-bar { position:fixed; left:0; right:0; bottom:0; z-index:10; background:rgba(255,255,255,.96); border-top:1px solid #ece7dc; padding:10px 12px; }
+  .cta-inner { max-width:420px; margin:0 auto; }
+  .cta { display:block; width:100%; background:#47685C; color:#fff; border:none; border-radius:24px; height:48px; font-size:16px; font-weight:600; cursor:pointer;  }
+  .cta:active { transform:scale(.98); }
+  /* 引导弹层 */
+  .mask { position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,.5); display:none; z-index:20; }
+  .mask.on { display:block; }
+  .sheet { background:#fff; width:100%; max-width:420px; border-radius:16px 16px 0 0; padding:22px 18px 30px; position:absolute; left:50%; bottom:0; margin-left:-210px; animation:up .25s ease; }
+  @media (max-width:420px) { .sheet { left:0; margin-left:0; } }
+  @keyframes up { from { transform:translateY(30%); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  .sheet h3 { font-size:17px; color:#26262a; margin-bottom:6px; }
+  .sheet .desc { font-size:14px; color:#55524b; line-height:1.9; }
+  .btn-green { display:block; width:100%; background:#47685C; color:#fff; border:none; border-radius:10px; height:48px; font-size:15px; font-weight:600; cursor:pointer; margin-top:12px; }
+  .btn-ghost { display:block; width:100%; background:#f0ece2; color:#55524b; border:none; border-radius:10px; height:48px; font-size:15px; cursor:pointer; margin-top:10px; }
+  .toast { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,.75); color:#fff; font-size:14px; padding:10px 18px; border-radius:8px; z-index:30; display:none; }
+  /* 加载 / 兜底页（失效与网络异常共用结构，文案由 JS 区分） */
+  .loading { display:none; text-align:center; padding:80px 0; color:#6f6a60; font-size:14px; }
+  .loading.on { display:block; }
+  .fallback { display:none; max-width:420px; margin:0 auto; min-height:100vh; background:#F5F3EE; padding:120px 24px 40px; text-align:center; box-sizing:border-box; }
+  .fallback.on { display:block; }
+  .fallback .ic { font-size:56px; margin-bottom:16px; }
+  .fallback .tt { font-size:18px; font-weight:700; color:#26262a; margin-bottom:8px; }
+  .fallback .dd { font-size:14px; color:#6f6a60; line-height:1.9; margin-bottom:24px; }
+  .fallback .btn-green { max-width:240px; margin-left:auto; margin-right:auto; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/h5/assets/dimi-logo.svg">
+<link rel="stylesheet" href="/h5/assets/brand.css">
+</head>
+<body>
+<!-- 主内容 -->
+<div class="wrap" id="app" style="display:none;">
+  <div class="brand-wordmark"><img class="brand-mark" src="/h5/assets/dimi-logo.svg" alt="">DIMI · 围城</div>
+  <div class="cover" id="cover">
+    <div class="cover-fallback" id="coverFallback">
+      <div class="cf-in">
+        <div class="mark">🏡</div>
+        <div class="name" id="fallbackTown">—</div>
+      </div>
+    </div>
+    <img id="coverImg" alt="" style="display:none;">
+    <div class="shade"></div>
+    <div class="town">
+      <div class="t" id="townName">—</div>
+      <div class="n" id="fellowLine">— 人关注这个家乡</div>
+    </div>
+  </div>
+
+  <!-- 计数卡：独立于简介卡，始终展示 -->
+  <div class="card" id="countCard">
+    <div class="fellow-line"><b id="fellowNum">0</b>人关注这个家乡</div>
+  </div>
+
+  <!-- 简介卡：无简介时隐藏 -->
+  <div class="card" id="introCard" style="display:none;">
+    <div class="intro" id="intro"></div>
+  </div>
+
+  <div class="sec-title">
+    <div class="t">同乡分享</div>
+    <div class="muted" id="contentCount"></div>
+  </div>
+  <div id="list"></div>
+  <div class="empty" id="empty" style="display:none;">
+    <div class="ic">🌾</div>
+    这个镇还没有同乡分享<br>打开 DIMI，做第一个分享家乡的人
+  </div>
+
+  <div class="disclaimer">
+    本页内容为老乡自发分享的信息展示。平台不提供任何交易服务，不涉及价格与支付。如据此进行线下交易，请自行核实对方身份与商品情况，谨防诈骗。
+  </div>
+  <div class="footer">
+    DIMI·围城 · 怀旧社交 · 只在双方都点头时才建立联系
+  </div>
+</div>
+
+<!-- 底部固定引导条 -->
+<div class="cta-bar" id="ctaBar" style="display:none;">
+  <div class="cta-inner">
+    <button class="cta" id="ctaBtn">如何查看更多同乡分享</button>
+  </div>
+</div>
+
+<!-- 下载引导弹层 -->
+<div class="mask" id="mask">
+  <div class="sheet">
+    <h3>打开 DIMI·围城</h3>
+    <div class="desc">
+      在 DIMI·围城 APP 中，从同乡资料或我的家乡进入「家乡页」，<br>可浏览更多分享，<br>
+      也能投稿你镜头里的家乡——风景、特产、老街故事都算数。
+    </div>
+    <button class="btn-green" id="copyBtn">复制家乡页链接</button>
+    <button class="btn-ghost" id="closeBtn">先逛逛，稍后再说</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 加载中 -->
+<div class="loading on" id="loading">正在打开家乡页…</div>
+
+<!-- 兜底页：链接失效 / 网络异常 共用，文案与按钮由 JS 切换 -->
+<div class="fallback" id="fallbackPage">
+  <div class="ic" id="fbIcon">🏚️</div>
+  <div class="tt" id="fbTitle">这个家乡页暂时打不开</div>
+  <div class="dd" id="fbDesc">链接可能不完整，或页面内容已调整。<br>你可以请分享人在 DIMI·围城 APP 中重新分享一次。</div>
+  <button class="btn-green" id="fbRetry">再试一次</button>
+</div>
+
+<script>
+// ES5 写法（老 WebView 兼容）：不用模板字符串/可选链/箭头函数/URLSearchParams/Promise 链
+(function () {
+  'use strict';
+
+  function $(id) { return document.getElementById(id); }
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function () { el.style.display = 'none'; }, 1800);
+  }
+
+  // 手写 query 解析（替代 URLSearchParams，兼容老 WebView）
+  function getQueryParam(name) {
+    var qs = location.search || '';
+    if (qs.charAt(0) === '?') qs = qs.slice(1);
+    if (!qs) return '';
+    var parts = qs.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split('=');
+      var k = kv[0];
+      try { k = decodeURIComponent(k); } catch (e) { /* 保留原样 */ }
+      if (k === name) {
+        var v = kv.slice(1).join('=').replace(/\+/g, ' ');
+        try { v = decodeURIComponent(v); } catch (e2) { /* 保留原样 */ }
+        return v;
+      }
+    }
+    return '';
+  }
+
+  // region_code 兼容两种形式：/h5/hometown/{code} 路径 与 ?code= 参数
+  function getCode() {
+    var m = /^\/h5\/hometown\/([^/?#]+)/.exec(location.pathname);
+    if (m && m[1] && !/\.[a-zA-Z0-9]+$/.test(m[1])) {
+      try { return decodeURIComponent(m[1]); } catch (e) { return m[1]; }
+    }
+    var q = getQueryParam('code');
+    return (q && String(q).replace(/^\s+|\s+$/g, '')) || '';
+  }
+
+  // 兜底页：kind='invalid' 链接失效（404/41001）；kind='network' 网络异常（429/5xx/超时/断网）
+  function showFallback(kind) {
+    $('loading').className = 'loading';
+    $('app').style.display = 'none';
+    $('ctaBar').style.display = 'none';
+    if (kind === 'network') {
+      $('fbIcon').textContent = '📶';
+      $('fbTitle').textContent = '网络异常，稍后再试';
+      $('fbDesc').innerHTML = '当前网络不稳定或服务繁忙。<br>请检查网络后点击下方按钮重试。';
+    } else {
+      $('fbIcon').textContent = '🏚️';
+      $('fbTitle').textContent = '这个家乡页暂时打不开';
+      $('fbDesc').innerHTML = '链接可能不完整，或页面内容已调整。<br>你可以请分享人在 DIMI·围城 APP 中重新分享一次。';
+    }
+    $('fallbackPage').className = 'fallback on';
+  }
+
+  function showApp() {
+    $('loading').className = 'loading';
+    $('fallbackPage').className = 'fallback';
+    $('app').style.display = 'block';
+    $('ctaBar').style.display = 'block';
+  }
+
+  function num(v, dft) {
+    var n = Number(v);
+    return (isFinite(n) && n >= 0) ? n : (dft || 0);
+  }
+
+  function text(v, dft) {
+    return (typeof v === 'string' && v.replace(/^\s+|\s+$/g, '')) ? v.replace(/^\s+|\s+$/g, '') : dft;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  // URL 白名单：仅放行根相对路径（/media/...）与同源 http(s)，其余一律丢弃
+  function safeUrl(u) {
+    if (typeof u !== 'string') return '';
+    u = u.replace(/^\s+|\s+$/g, '');
+    if (!u) return '';
+    if (u.charAt(0) === '/') {
+      return u.charAt(1) === '/' ? '' : u; // // 协议相对不放行
+    }
+    if (/^https?:\/\//i.test(u)) {
+      var m = /^https?:\/\/[^/?#]+/i.exec(u);
+      var origin = (location.protocol + '//' + location.host).toLowerCase();
+      return (m && m[0].toLowerCase() === origin) ? u : '';
+    }
+    return '';
+  }
+
+  // 分享卡 OG 动态覆写（有封面才写 og:image，无图保持纯色占位封面块）
+  function setOg(title, desc, image) {
+    document.title = title;
+    $('ogTitle').setAttribute('content', title);
+    $('ogDesc').setAttribute('content', desc);
+    var tag = document.querySelector('meta[property="og:image"]');
+    if (image) {
+      if (!tag) {
+        tag = document.createElement('meta');
+        tag.setAttribute('property', 'og:image');
+        document.head.appendChild(tag);
+      }
+      tag.setAttribute('content', image);
+    }
+  }
+
+  // 分类码 → 中文标签（与服务端 CATEGORIES 一致）
+  var CATEGORY_LABELS = { scenery: '家乡风景', product: '特产好物', craft: '老手艺', story: '老街故事' };
+
+  // 字段契约（server/src/routes/hometownPages.js 公开端点）：
+  // { region_name, cover_media, intro, follower_count,
+  //   items: [{ category, title, cover, view_count, author_nickname, created_at }] }
+  function render(data) {
+    data = data || {};
+    var town = text(data.region_name, '') || '我的家乡';
+    var fellowCount = num(data.follower_count, 0);
+    var intro = text(data.intro, '');
+    var cover = safeUrl(data.cover_media);
+    var items = (data.items && Object.prototype.toString.call(data.items) === '[object Array]') ? data.items : [];
+
+    $('townName').textContent = town;
+    $('fallbackTown').textContent = town;
+    $('fellowLine').textContent = fellowCount + ' 人关注这个家乡';
+    $('fellowNum').textContent = fellowCount;
+    $('cover').classList.toggle('no-cover', !cover);
+    if (cover) {
+      var img = $('coverImg');
+      img.src = cover;
+      img.style.display = 'block';
+      $('coverFallback').style.display = 'none';
+      img.onerror = function () {
+        // 封面加载失败：回退纯色占位
+        img.style.display = 'none';
+        $('cover').classList.add('no-cover');
+        $('coverFallback').style.display = 'block';
+      };
+    }
+    if (intro) {
+      $('intro').textContent = intro;
+      $('introCard').style.display = 'block';
+    }
+
+    var html = '';
+    for (var i = 0; i < items.length; i++) {
+      var c = items[i] || {};
+      var title = text(c.title, '') || '同乡分享';
+      var image = safeUrl(c.cover);
+      var category = text(c.category, '');
+      var label = CATEGORY_LABELS[category] || category;
+      var views = num(c.view_count, 0);
+      var nick = text(c.author_nickname, '') || '老乡';
+      html += '<div class="item">' +
+        (image
+          ? '<div class="pic"><img src="' + escapeHtml(image) + '" alt="" loading="lazy" onerror="this.parentNode.style.display=\'none\'">' +
+            '<div class="wm">来自 DIMI·围城 · 老乡分享</div></div>'
+          : '') +
+        '<div class="body">' +
+        '<div class="title">' + escapeHtml(title) + '</div>' +
+        '<div class="meta">' +
+        (label ? '<span class="tag">' + escapeHtml(label) + '</span>' : '') +
+        '<span class="nick">' + escapeHtml(nick) + '</span>' +
+        '<span>' + views + ' 次浏览</span>' +
+        '</div></div></div>';
+    }
+    $('list').innerHTML = html;
+    $('contentCount').textContent = items.length ? ('共 ' + items.length + ' 条') : '';
+    $('empty').style.display = items.length ? 'none' : 'block';
+
+    setOg(
+      town + ' · DIMI 围城家乡页',
+      intro || (fellowCount + ' 人关注这个家乡，看看同乡们分享的家乡事'),
+      cover
+    );
+    showApp();
+  }
+
+  // GET JSON：优先 fetch（10s 超时兜底），无 fetch 时降级 XMLHttpRequest
+  // 回调口径：cb(null, status, body)；网络层失败 cb('network')；超时 cb('timeout')
+  function requestJson(url, cb) {
+    var finished = false;
+    function once(kind, status, body) {
+      if (finished) return;
+      finished = true;
+      cb(kind, status, body);
+    }
+    if (window.fetch) {
+      var timer = setTimeout(function () { once('timeout'); }, 10000);
+      try {
+        window.fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } }).then(function (res) {
+          res.json().then(function (body) {
+            clearTimeout(timer);
+            once(null, res.status, body);
+          }, function () {
+            clearTimeout(timer);
+            once(null, res.status, null);
+          });
+        }, function () {
+          clearTimeout(timer);
+          once('network');
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        once('network');
+      }
+      return;
+    }
+    // 降级：XMLHttpRequest（老 WebView）
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.timeout = 10000;
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        if (!xhr.status) { once('network'); return; }
+        var body = null;
+        try { body = JSON.parse(xhr.responseText); } catch (e2) { /* body 置空走兜底 */ }
+        once(null, xhr.status, body);
+      };
+      xhr.ontimeout = function () { once('timeout'); };
+      xhr.onerror = function () { once('network'); };
+      xhr.send(null);
+    } catch (e3) {
+      once('network');
+    }
+  }
+
+  function load() {
+    var code = getCode();
+    if (!code) { showFallback('invalid'); return; }
+
+    // API_BASE 与召集令落地页一致：同源相对路径（服务端同源托管 /h5 与 /v1）
+    requestJson('/v1/public/hometown-pages/' + encodeURIComponent(code), function (err, status, body) {
+      // 超时 / 断网 / 429 / 5xx / 异常包络 → 网络异常页（可重试）
+      if (err === 'timeout' || err === 'network') { showFallback('network'); return; }
+      // 404 / 41001 → 链接失效页
+      if (status === 404 || (body && body.code === 41001)) { showFallback('invalid'); return; }
+      if (status === 429 || status >= 500) { showFallback('network'); return; }
+      // 包络 {code, message, data}；code=0 成功，其余统一兜底
+      if (!body || body.code !== 0 || body.data == null) { showFallback('network'); return; }
+      render(body.data);
+    });
+  }
+
+  // addEventListener once 选项特性检测（老 WebView 不支持 options 对象时降级）
+  var supportOnce = false;
+  try {
+    var opts = Object.defineProperty({}, 'once', {
+      get: function () { supportOnce = true; return false; }
+    });
+    window.addEventListener('__dimi_once_test', function () {}, opts);
+    window.removeEventListener('__dimi_once_test', function () {}, opts);
+  } catch (e) { supportOnce = false; }
+
+  // 一次性监听：支持 {once:true} 则用之，否则用 fired 标记保证只触发一次
+  function addOnce(target, ev, fn) {
+    var fired = false;
+    var handler = function () {
+      if (fired) return;
+      fired = true;
+      fn();
+    };
+    if (supportOnce) {
+      target.addEventListener(ev, handler, { once: true });
+    } else {
+      target.addEventListener(ev, handler, false);
+    }
+  }
+
+  function openMask() { $('mask').className = 'mask on'; }
+  function closeMask() { $('mask').className = 'mask'; }
+
+  // 微信内置浏览器禁止 scheme 唤起，直接弹口令/下载引导层
+  function isWeChat() {
+    var ua = navigator.userAgent || '';
+    return /MicroMessenger/i.test(ua);
+  }
+
+  function bindEvents() {
+    $('ctaBtn').addEventListener('click', openMask);
+    $('closeBtn').addEventListener('click', closeMask);
+    $('mask').addEventListener('click', function (e) {
+      var t = e.target || e.srcElement;
+      if (t === this) closeMask();
+    });
+    $('copyBtn').addEventListener('click', function () {
+      var code = location.href;
+      var done = function () { toast('家乡页链接已复制，可发送给老乡'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, function () { fallbackCopy(code, done); });
+      } else {
+        fallbackCopy(code, done);
+      }
+    });
+    // 兜底页重试：重新拉取（失效页同样允许重试，分享人可能已重新发布）
+    $('fbRetry').addEventListener('click', function () {
+      $('fallbackPage').className = 'fallback';
+      $('loading').className = 'loading on';
+      load();
+    });
+  }
+
+  function fallbackCopy(txt, done) {
+    var ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { if (document.execCommand('copy')) done(); else toast('复制失败，请手动复制地址栏链接'); }
+    catch (e) { toast('复制失败，请手动长按复制'); }
+    document.body.removeChild(ta);
+  }
+
+  // 入口 try/catch 兜底：任何初始化异常都落到失效页，不留白屏
+  try {
+    bindEvents();
+    load();
+  } catch (e) {
+    try { showFallback('invalid'); } catch (e2) { /* DOM 也不可用时放弃 */ }
+  }
+})();
+</script>
+</body>
+</html>

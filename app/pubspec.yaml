@@ -1,0 +1,32 @@
+name: dimi
+description: "DIMI · 围城 — 走出通讯录的围城，找回走散的人（V1.0 班级群聊与觅豆）"
+publish_to: "none"
+version: 1.0.2+5
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cached_network_image: ^3.4.1
+  flutter_secure_storage: ^9.2.2
+  http: ^1.2.0
+  image_picker: ^1.1.2
+  provider: ^6.1.1
+  qr_flutter: ^4.1.0
+  shared_preferences: ^2.2.3
+  record: ^7.1.1
+  audioplayers: ^6.8.1
+  video_player: ^2.14.0
+  mobile_scanner: ^7.4.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.2
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/dimi_mark.png

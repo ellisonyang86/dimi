@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 品牌黛绿（Dart 侧 kDimiPrimary），启动页纯色底 -->
+    <color name="dimi_launch_bg">#47685C</color>
+</resources>

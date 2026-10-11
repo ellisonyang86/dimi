@@ -1,0 +1,15 @@
+{
+  "name": "dimi-server",
+  "version": "0.9.0",
+  "description": "DIMI · 围城 V0.9 垂直切片后端（零依赖，Node.js 24 + node:sqlite）",
+  "type": "module",
+  "private": true,
+  "engines": { "node": ">=24" },
+  "scripts": {
+    "test:scenarios": "node scripts/scenario_check.mjs",
+    "start": "node src/index.js",
+    "seed": "node src/seed.js",
+    "backup": "node scripts/backup.mjs",
+    "test": "node --test \"test/*.test.js\""
+  }
+}

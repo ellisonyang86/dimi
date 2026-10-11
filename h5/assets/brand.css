@@ -1,0 +1,33 @@
+/* 与 Flutter theme.dart 共用品牌色与扁平层次。 */
+:root { --dimi-primary:#536b61; --dimi-bg:#f7f8f5; --dimi-text:#3b423d; --dimi-line:#e9ede8; }
+body { color:var(--dimi-text); background:var(--dimi-bg); }
+.brand-mark { width:36px; height:36px; vertical-align:middle; margin-right:10px; flex-shrink:0; }
+.brand .logo, .brand-wordmark, h1 { display:flex; align-items:center; }
+.brand-wordmark { padding:14px 16px; gap:0; font-size:17px; font-weight:600; color:var(--dimi-primary); }
+.card, .item { border:0; box-shadow:none; border-radius:12px; }
+.cta { border-radius:10px; box-shadow:none; min-height:48px; height:auto; padding:12px; }
+.btn, .btn-green, .btn-ghost { min-height:44px; height:auto; padding:10px 14px; }
+.sub, .hint, .stat .label, .stat .foot { color:#6f6f6f; }
+.tabs button.on { box-shadow:none; color:var(--dimi-primary); }
+.token-bar { flex-wrap:wrap; }
+button:focus-visible, input:focus-visible { outline:2px solid var(--dimi-primary); outline-offset:3px; }
+
+.wrap, .fallback { background:var(--dimi-bg); }
+.cta, .btn, .btn-green { background:#dfe9e2; color:var(--dimi-primary); border:0; border-radius:10px; }
+.btn-ghost { background:#edf3ef; color:var(--dimi-primary); border:0; }
+.cell.lit { color:var(--dimi-text); }
+.cover, .cover-fallback { background:#f6eee7; color:#805f4b; }
+.item .title { font-size:19px; line-height:1.5; font-weight:600; }
+.item .body { padding:16px; }
+.item .meta { font-size:12px; margin-top:12px; line-height:1.6; }
+.sec-title .t { font-size:18px; }
+.card .intro { font-size:15px; line-height:1.8; }
+
+.brand { background:#dfe9e2; color:var(--dimi-primary); }
+
+.cover.no-cover { height:160px; }
+.cover.no-cover .shade, .cover.no-cover .cf-in { display:none; }
+.cover.no-cover .town { color:#805f4b; }
+.cover.no-cover .town .t { text-shadow:none; }
+
+#countCard { display:none; } /* 关注人数已在封面下展示。 */

@@ -1,0 +1,42 @@
+# DIMI · 围城 V0.9 — systemd unit
+# 安装：
+#   sudo useradd --system --create-home --shell /usr/sbin/nologin dimi   # 创建运行用户
+#   sudo mkdir -p /opt/dimi && sudo cp -r server /opt/dimi/server && sudo chown -R dimi:dimi /opt/dimi
+#   sudo cp -r h5 admin /opt/dimi/   # 静态托管 /h5/ /admin/（src/app.js staticRoots 指向 PROJECT_ROOT/h5、PROJECT_ROOT/admin，缺了会 404）
+#   sudo mkdir -p /etc/dimi && sudo cp dimi.env /etc/dimi/dimi.env && sudo chmod 600 /etc/dimi/dimi.env
+#   sudo cp deploy/dimi.service /etc/systemd/system/dimi.service
+#   sudo systemctl daemon-reload && sudo systemctl enable --now dimi
+[Unit]
+Description=DIMI server (zero-dependency Node.js, node:http + node:sqlite)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=dimi
+Group=dimi
+WorkingDirectory=/opt/dimi/server
+ExecStart=/usr/bin/node src/index.js
+Restart=on-failure
+RestartSec=3
+
+# 环境变量文件（权限 600，属 root）：需包含 DEPLOY.md「环境变量全表」中的生产必需项：
+#   DIMI_ENV=production
+#   DIMI_FIELD_KEY=<64 位 hex>
+#   DIMI_SMS_PROVIDER=aliyun
+#   DIMI_ALIYUN_AK_ID / DIMI_ALIYUN_AK_SECRET
+#   DIMI_SMS_SIGN / DIMI_SMS_TEMPLATE
+#   ADMIN_TOKEN=<强随机值>
+# 可选：PORT（缺省 8080）、DIMI_DB_PATH、DIMI_CORS_ORIGINS、
+#   DIMI_STORAGE_PROVIDER=oss + DIMI_OSS_BUCKET / DIMI_OSS_ENDPOINT [/ DIMI_OSS_PUBLIC_BASE]
+EnvironmentFile=/etc/dimi/dimi.env
+
+# 基础加固
+NoNewPrivileges=true
+ProtectSystem=strict
+# SQLite 库 / 上传文件 / 备份均写 server/data（local 存储模式；OSS 模式仅库与备份）
+ReadWritePaths=/opt/dimi/server/data
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

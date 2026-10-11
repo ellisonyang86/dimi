@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- V1.0 上线：全量禁止明文流量（正式环境 API/H5/媒体均为 https）。
+     开发联调的明文放行在 src/debug 覆盖（network_security_config_debug.xml）。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="false" />
+</network-security-config>

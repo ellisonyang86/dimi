@@ -1,0 +1,386 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<!-- 适老：允许缩放，不设 maximum-scale / user-scalable=no -->
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIMI · 围城 — 班级召集令</title>
+<style>
+  /* 适老对比度：辅助文字统一 #757575（白/浅灰底上 ≥4.5:1） */
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  body { background:#F5F3EE; min-height:100vh; }
+  .wrap { max-width:420px; margin:0 auto; min-height:100vh; background:#F5F3EE; padding-bottom:40px;  }
+  .green { color:#47685C; }
+  .muted { color:#757575; font-size:13px; }
+  .brand { background:#47685C; color:#fff; padding:22px 20px 40px; border-radius:0 0 18px 18px; }
+  .brand .logo { font-size:22px; font-weight:700; letter-spacing:1px; }
+  .brand .slogan { font-size:13px; opacity:.9; margin-top:4px; }
+  .card { background:#fff; border-radius:10px; margin:-22px 12px 12px; padding:16px 14px;  }
+  .card + .card { margin-top:0; }
+  .invite-line { font-size:14px; color:#333; }
+  .invite-line .who { font-weight:700; color:#47685C; }
+  .unit-name { font-size:17px; font-weight:700; color:#111; margin:10px 0 2px; line-height:1.5; }
+  .unit-sub { font-size:13px; color:#757575; margin-bottom:10px; }
+  /* 头像墙 */
+  .wall-title { display:table; width:100%; margin-bottom:10px; }
+  .wall-title .t { display:table-cell; font-size:14px; font-weight:600; color:#111; }
+  .wall-title .muted { display:table-cell; text-align:right; vertical-align:bottom; }
+  .wall { display:grid; grid-template-columns:repeat(5,1fr); gap:8px; }
+  /* 正方形格子：padding-top hack（老 WebView 不支持 aspect-ratio） */
+  .cell { position:relative; height:0; padding-top:100%; border-radius:8px; overflow:hidden; }
+  .cell-in { position:absolute; left:0; top:0; right:0; bottom:0; display:flex; flex-direction:column; align-items:center; justify-content:center; overflow:hidden; padding:2px; }
+  .cell.lit { color:#fff; }
+  .cell.lit .nick { font-size:12px; font-weight:600; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cell.lit .mask-name { font-size:10px; opacity:.85; margin-top:1px; max-width:100%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .cell.empty { border:1.5px dashed #c8c8c8; color:#9c9c9c; font-size:16px; }
+  .progress-line { display:flex; justify-content:space-between; font-size:13px; color:#555; margin:12px 0 6px; }
+  .progress-line b { color:#47685C; }
+  .bar { height:8px; background:#eee; border-radius:4px; overflow:hidden; }
+  .bar i { display:block; height:100%; background:#47685C; border-radius:4px; transition:width .4s; }
+  /* CTA */
+  .cta-wrap { margin:4px 12px 0; }
+  .cta { display:block; width:100%; background:#47685C; color:#fff; border:none; border-radius:24px; height:48px; font-size:16px; font-weight:600; cursor:pointer;  }
+  .cta:active { transform:scale(.98); }
+  .cta-sub { text-align:center; font-size:13px; color:#757575; margin-top:8px; }
+  .footer { text-align:center; font-size:12px; color:#757575; margin-top:22px; padding:0 20px; line-height:1.8; }
+  /* 弹层 */
+  .mask { position:fixed; left:0; top:0; right:0; bottom:0; background:rgba(0,0,0,.5); display:none; z-index:20; }
+  .mask.on { display:block; }
+  .sheet { background:#fff; width:100%; max-width:420px; border-radius:16px 16px 0 0; padding:22px 18px 30px; position:absolute; left:50%; bottom:0; margin-left:-210px; animation:up .25s ease; }
+  @media (max-width:420px) { .sheet { left:0; margin-left:0; } }
+  @keyframes up { from { transform:translateY(30%); opacity:0; } to { transform:translateY(0); opacity:1; } }
+  .sheet h3 { font-size:17px; color:#111; margin-bottom:6px; }
+  .sheet .desc { font-size:14px; color:#555; line-height:1.8; }
+  .code-box { background:#f4fbf7; border:1px dashed #47685C; border-radius:10px; margin:14px 0; padding:14px; text-align:center; }
+  .code-box .label { font-size:13px; color:#1a7a4a; }
+  .code-box .val { font-size:22px; font-weight:700; color:#47685C; letter-spacing:2px; margin-top:4px; word-break:break-all; }
+  .btn-green { display:block; width:100%; background:#47685C; color:#fff; border:none; border-radius:10px; height:48px; font-size:15px; font-weight:600; cursor:pointer; margin-top:10px; }
+  .btn-ghost { display:block; width:100%; background:#f0f0f0; color:#555; border:none; border-radius:10px; height:48px; font-size:15px; cursor:pointer; margin-top:10px; }
+  .toast { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); background:rgba(0,0,0,.75); color:#fff; font-size:14px; padding:10px 18px; border-radius:8px; z-index:30; display:none; }
+  /* 兜底页：失效与网络异常共用结构，文案由 JS 区分 */
+  .fallback { display:none; max-width:420px; margin:0 auto; min-height:100vh; background:#F5F3EE; padding:120px 24px 40px; text-align:center; box-sizing:border-box; }
+  .fallback.on { display:block; }
+  .fallback .ic { font-size:56px; margin-bottom:16px; }
+  .fallback .tt { font-size:18px; font-weight:700; color:#111; margin-bottom:8px; }
+  .fallback .dd { font-size:14px; color:#757575; line-height:1.8; margin-bottom:24px; }
+  .fallback .btn-green { max-width:240px; margin-left:auto; margin-right:auto; }
+  /* 加载 */
+  .loading { display:none; text-align:center; padding:80px 0; color:#757575; font-size:14px; }
+  .loading.on { display:block; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/h5/assets/dimi-logo.svg">
+<link rel="stylesheet" href="/h5/assets/brand.css">
+</head>
+<body>
+<!-- 主内容 -->
+<div class="wrap" id="app" style="display:none;">
+  <div class="brand">
+    <div class="logo"><img class="brand-mark" src="/h5/assets/dimi-logo.svg" alt="">DIMI · 围城</div>
+    <div class="slogan">走出通讯录的围城，找回走散的人</div>
+  </div>
+
+  <div class="card">
+    <div class="invite-line">
+      <span style="font-size:22px;">📣</span>
+      <div><span class="who" id="inviterName">—</span> 邀请你点亮班级名册</div>
+    </div>
+    <div class="unit-name" id="unitName">—</div>
+    <div class="unit-sub" id="slogan">一个都不能少，还差一个你</div>
+
+    <div class="wall-title">
+      <div class="t">班级名册</div>
+      <div class="muted" id="progressText">0/0 已点亮</div>
+    </div>
+    <div class="wall" id="wall"></div>
+    <div class="progress-line">
+      <span><b id="litNum">0</b> 人已点亮 · 还差 <b id="gapNum">0</b> 人</span>
+      <span id="percentText">0%</span>
+    </div>
+    <div class="bar"><i id="barFill" style="width:0%;"></i></div>
+  </div>
+
+  <div class="cta-wrap">
+    <button class="cta" id="ctaBtn">我是这个班的，点亮我的名字</button>
+    <div class="cta-sub">点亮后，老同学就知道你回来了</div>
+  </div>
+
+  <div class="footer">
+    找回老同学，从填写真实经历开始 · 联系方式由本人控制<br>
+    DIMI·围城 · 怀旧社交 · 只在双方都点头时才建立联系
+  </div>
+</div>
+
+<!-- 说明弹层 -->
+<div class="mask" id="mask">
+  <div class="sheet">
+    <h3>点亮你的名字</h3>
+    <div class="desc">
+      在 DIMI·围城 APP 注册后，填写对应学校、入学年份和班级，<br>
+      即可找到同班同学，发送好友申请。<br>
+      在你同意之前，平台不会向对方展示任何联系方式。
+    </div>
+    <div class="code-box">
+      <div class="label">召集令编号（注册时可填入邀请码）</div>
+      <div class="val" id="codeVal">—</div>
+    </div>
+    <button class="btn-green" id="copyBtn">复制邀请码</button>
+    <button class="btn-ghost" id="closeBtn">先逛逛，稍后再说</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- 加载中 -->
+<div class="loading on" id="loading">正在读取召集令…</div>
+
+<!-- 兜底页：链接失效 / 网络异常 共用，文案与按钮由 JS 切换 -->
+<div class="fallback" id="fallbackPage">
+  <div class="ic" id="fbIcon">🏚️</div>
+  <div class="tt" id="fbTitle">召集令已失效或不存在</div>
+  <div class="dd" id="fbDesc">这张召集令可能已过期、被撤销，或链接不完整。<br>你可以请邀请人在 DIMI·围城 APP 中重新生成一张。</div>
+  <button class="btn-green" id="fbRetry">再试一次</button>
+</div>
+
+<script>
+// ES5 写法（老 WebView 兼容）：不用模板字符串/可选链/箭头函数/URLSearchParams/Promise 链
+(function () {
+  'use strict';
+
+  var AVATAR_COLORS = ['#DFE9E2', '#EEE2D8', '#E1E8EF', '#E9E2EC', '#EBE7DC', '#E0EBE5', '#F0E2DE'];
+
+  function $(id) { return document.getElementById(id); }
+
+  function toast(msg) {
+    var el = $('toast');
+    el.textContent = msg;
+    el.style.display = 'block';
+    setTimeout(function () { el.style.display = 'none'; }, 1800);
+  }
+
+  // 手写 query 解析（替代 URLSearchParams，兼容老 WebView）
+  function getQueryParam(name) {
+    var qs = location.search || '';
+    if (qs.charAt(0) === '?') qs = qs.slice(1);
+    if (!qs) return '';
+    var parts = qs.split('&');
+    for (var i = 0; i < parts.length; i++) {
+      var kv = parts[i].split('=');
+      var k = kv[0];
+      try { k = decodeURIComponent(k); } catch (e) { /* 保留原样 */ }
+      if (k === name) {
+        var v = kv.slice(1).join('=').replace(/\+/g, ' ');
+        try { v = decodeURIComponent(v); } catch (e2) { /* 保留原样 */ }
+        return v;
+      }
+    }
+    return '';
+  }
+
+  function getCode() {
+    var m = getQueryParam('code');
+    return (m && String(m).replace(/^\s+|\s+$/g, '')) || '';
+  }
+
+  // 兜底页：kind='invalid' 链接失效（404/41001）；kind='network' 网络异常（429/5xx/超时/断网）
+  function showFallback(kind) {
+    $('loading').className = 'loading';
+    $('app').style.display = 'none';
+    if (kind === 'network') {
+      $('fbIcon').textContent = '📶';
+      $('fbTitle').textContent = '网络异常，稍后再试';
+      $('fbDesc').innerHTML = '当前网络不稳定或服务繁忙。<br>请检查网络后点击下方按钮重试。';
+    } else {
+      $('fbIcon').textContent = '🏚️';
+      $('fbTitle').textContent = '召集令已失效或不存在';
+      $('fbDesc').innerHTML = '这张召集令可能已过期、被撤销，或链接不完整。<br>你可以请邀请人在 DIMI·围城 APP 中重新生成一张。';
+    }
+    $('fallbackPage').className = 'fallback on';
+  }
+
+  function showApp() {
+    $('loading').className = 'loading';
+    $('fallbackPage').className = 'fallback';
+    $('app').style.display = 'block';
+  }
+
+  function num(v, dft) {
+    var n = Number(v);
+    return (isFinite(n) && n >= 0) ? n : (dft || 0);
+  }
+
+  function text(v, dft) {
+    return (typeof v === 'string' && v.replace(/^\s+|\s+$/g, '')) ? v.replace(/^\s+|\s+$/g, '') : dft;
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function render(data) {
+    data = data || {};
+    var target = Math.max(0, Math.round(num(data.target, 0)));
+    var avatars = (data.avatars && Object.prototype.toString.call(data.avatars) === '[object Array]') ? data.avatars : [];
+    var lit = Math.min(Math.round(num(data.lit, avatars.length)), target);
+
+    $('inviterName').textContent = text(data.inviter && data.inviter.nickname, '老同学');
+    $('unitName').textContent = text(data.unit_name, '我们的班级');
+    $('slogan').textContent = text(data.slogan, '一个都不能少，还差一个你');
+
+    // 头像墙：已点亮在前，空位在后
+    var wall = $('wall');
+    var html = '';
+    for (var i = 0; i < lit; i++) {
+      var a = avatars[i] || {};
+      var nick = text(a.nickname, '同学');
+      var masked = text(a.masked_name, '');
+      var color = (typeof a.avatar_color === 'string' && /^#[0-9a-fA-F]{3,8}$/.test(a.avatar_color))
+        ? a.avatar_color
+        : AVATAR_COLORS[i % AVATAR_COLORS.length];
+      html += '<div class="cell lit" style="background:' + color + ';"><div class="cell-in">' +
+        '<div class="nick">' + escapeHtml(nick) + '</div>' +
+        (masked ? '<div class="mask-name">' + escapeHtml(masked) + '</div>' : '') +
+        '</div></div>';
+    }
+    var emptyCount = Math.max(target - lit, 0);
+    // 空位过多时截断显示，避免超长列表
+    var shownEmpty = Math.min(emptyCount, Math.max(15 - lit, 5));
+    for (var j = 0; j < shownEmpty; j++) {
+      html += '<div class="cell empty"><div class="cell-in">?</div></div>';
+    }
+    wall.innerHTML = html;
+
+    var gap = Math.max(target - lit, 0);
+    var pct = target > 0 ? Math.min(100, Math.round(lit / target * 100)) : 0;
+    $('progressText').textContent = lit + '/' + target + ' 已点亮';
+    $('litNum').textContent = lit;
+    $('gapNum').textContent = gap;
+    $('percentText').textContent = pct + '%';
+    $('barFill').style.width = pct + '%';
+
+    showApp();
+  }
+
+  // GET JSON：优先 fetch（10s 超时兜底），无 fetch 时降级 XMLHttpRequest
+  // 回调口径：cb(null, status, body)；网络层失败 cb('network')；超时 cb('timeout')
+  function requestJson(url, cb) {
+    var finished = false;
+    function once(kind, status, body) {
+      if (finished) return;
+      finished = true;
+      cb(kind, status, body);
+    }
+    if (window.fetch) {
+      var timer = setTimeout(function () { once('timeout'); }, 10000);
+      try {
+        window.fetch(url, { method: 'GET', headers: { 'Accept': 'application/json' } }).then(function (res) {
+          res.json().then(function (body) {
+            clearTimeout(timer);
+            once(null, res.status, body);
+          }, function () {
+            clearTimeout(timer);
+            once(null, res.status, null);
+          });
+        }, function () {
+          clearTimeout(timer);
+          once('network');
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        once('network');
+      }
+      return;
+    }
+    // 降级：XMLHttpRequest（老 WebView）
+    try {
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', url, true);
+      xhr.timeout = 10000;
+      xhr.setRequestHeader('Accept', 'application/json');
+      xhr.onreadystatechange = function () {
+        if (xhr.readyState !== 4) return;
+        if (!xhr.status) { once('network'); return; }
+        var body = null;
+        try { body = JSON.parse(xhr.responseText); } catch (e2) { /* body 置空走兜底 */ }
+        once(null, xhr.status, body);
+      };
+      xhr.ontimeout = function () { once('timeout'); };
+      xhr.onerror = function () { once('network'); };
+      xhr.send(null);
+    } catch (e3) {
+      once('network');
+    }
+  }
+
+  function load() {
+    var code = getCode();
+    if (!code) { showFallback('invalid'); return; }
+
+    requestJson('/v1/public/invites/' + encodeURIComponent(code), function (err, status, body) {
+      // 超时 / 断网 / 429 / 5xx → 网络异常页（可重试）
+      if (err === 'timeout' || err === 'network') { showFallback('network'); return; }
+      // 404 / 41001 → 召集令失效页
+      if (status === 404 || (body && body.code === 41001)) { showFallback('invalid'); return; }
+      if (status === 429 || status >= 500) { showFallback('network'); return; }
+      // 包络 {code, message, data}；code=0 成功，其余 code!==0 统一走兜底
+      if (!body || body.code !== 0 || body.data == null) { showFallback('network'); return; }
+      render(body.data);
+    });
+  }
+
+  function openMask() {
+    $('codeVal').textContent = getCode() || '—';
+    $('mask').className = 'mask on';
+  }
+  function closeMask() { $('mask').className = 'mask'; }
+
+  function bindEvents() {
+    // 弹层交互
+    $('ctaBtn').addEventListener('click', openMask);
+    $('closeBtn').addEventListener('click', closeMask);
+    $('mask').addEventListener('click', function (e) {
+      var t = e.target || e.srcElement;
+      if (t === this) closeMask();
+    });
+    $('copyBtn').addEventListener('click', function () {
+      var code = getCode();
+      if (!code) { toast('邀请码缺失'); return; }
+      var done = function () { toast('邀请码已复制，可在注册时填写'); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(code).then(done, function () { fallbackCopy(code, done); });
+      } else {
+        fallbackCopy(code, done);
+      }
+    });
+    // 兜底页重试：重新拉取（邀请人可能已重新生成）
+    $('fbRetry').addEventListener('click', function () {
+      $('fallbackPage').className = 'fallback';
+      $('loading').className = 'loading on';
+      load();
+    });
+  }
+
+  function fallbackCopy(txt, done) {
+    var ta = document.createElement('textarea');
+    ta.value = txt;
+    ta.style.position = 'fixed';
+    ta.style.opacity = '0';
+    document.body.appendChild(ta);
+    ta.select();
+    try { if (document.execCommand('copy')) done(); else toast('复制失败，请手动长按复制邀请码'); }
+    catch (e) { toast('复制失败，请手动长按复制'); }
+    document.body.removeChild(ta);
+  }
+
+  // 入口 try/catch 兜底：任何初始化异常都落到失效页，不留白屏
+  try {
+    bindEvents();
+    load();
+  } catch (e) {
+    try { showFallback('invalid'); } catch (e2) { /* DOM 也不可用时放弃 */ }
+  }
+})();
+</script>
+</body>
+</html>

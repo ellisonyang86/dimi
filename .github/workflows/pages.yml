@@ -1,0 +1,54 @@
+name: Deploy demo to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage static demo
+        run: |
+          mkdir -p _site
+          cp -r prototype _site/prototype
+          cp -r h5 _site/h5
+          # rewrite absolute /h5/ asset paths for Pages subpath hosting
+          sed -i 's|/h5/assets/|assets/|g' _site/h5/index.html
+          sed -i 's|/h5/assets/|../assets/|g' _site/h5/hometown/index.html
+          cat > _site/index.html <<'EOF'
+          <!doctype html><html lang="zh"><head><meta charset="utf-8">
+          <meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>DIMI · 围城 — Live Demo</title>
+          <style>body{font-family:system-ui,sans-serif;max-width:640px;margin:60px auto;padding:0 16px;line-height:1.8}
+          a{display:block;padding:14px 18px;margin:12px 0;border:1px solid #ddd;border-radius:10px;text-decoration:none;color:#1a66cc}</style>
+          </head><body>
+          <h1>DIMI · 围城 — 在线演示</h1>
+          <a href="./prototype/">可点击原型（16 屏） Clickable prototype</a>
+          <a href="./h5/">召集令落地页 Recruitment landing page</a>
+          <a href="./h5/hometown/">家乡共建页 Hometown co-build page</a>
+          <p><a href="https://github.com/ellisonyang86/dimi">← 返回仓库 Back to repo</a></p>
+          </body></html>
+          EOF
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - id: deployment
+        uses: actions/deploy-pages@v4

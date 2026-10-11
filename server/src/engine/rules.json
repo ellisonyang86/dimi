@@ -1,0 +1,96 @@
+{
+  "intersection": {
+    "school_overlap_min_years": 1,
+    "same_town_max_age_t3": 5,
+    "same_town_max_age_t2": 15,
+    "same_county_max_age_t2": 5,
+    "mutual_friends_t3": 2,
+    "mutual_friends_t2": 1,
+    "stage_years": {
+      "PRIMARY": 6,
+      "MIDDLE": 3,
+      "HIGH": 3,
+      "VOCATIONAL": 3,
+      "UNIVERSITY": 4,
+      "POSTGRADUATE": 3
+    }
+  },
+  "female_protection": {
+    "enabled": true,
+    "comment": "§5.2.4 女性/未成年默认加一档从严，用户可在隐私设置调回（female_protect=0）",
+    "degrade": { "T3": "T2", "T2": "T1", "T1": "T0", "T0": "T0" }
+  },
+  "name_matrix": {
+    "comment": "真名渐显矩阵 §5.2.4/§5.2.8：full=完整真名 mask=掩码名(李*娟) surname=掩码姓(李**) hidden=不展示；好友恒为 full",
+    "open":     { "T3": "full", "T2": "full",    "T1": "full",    "T0": "hidden" },
+    "balanced": { "T3": "full", "T2": "mask",    "T1": "surname", "T0": "hidden" },
+    "strict":   { "T3": "surname", "T2": "surname", "T1": "surname", "T0": "hidden" }
+  },
+  "friend_display": "full",
+  "banner": {
+    "same_class": "你们是 {enroll_year}级{school}{class_raw}的同班同学",
+    "same_class_unverified": "你们的经历显示同为 {enroll_year}级{school}{class_raw}的同学（未验证）",
+    "same_school": "你们是 {school} 的同期校友",
+    "same_school_unverified": "你们的经历显示同为 {school} 的校友（未验证）",
+    "same_town": "你们是 {town} 的老乡",
+    "same_county": "你们是 {town} 一带的老乡",
+    "mutual": "你们有 {count} 位共同好友",
+    "default": "你们在 DIMI 相遇"
+  },
+  "rate_limit": {
+    "search_per_hour": 60,
+    "search_max_page": 3,
+    "search_max_results": 200,
+    "search_page_size": 20,
+    "sms_interval_sec": 60,
+    "sms_daily": 10,
+    "friend_request_daily": 30,
+    "friend_request_same_target_30d": 3,
+    "friend_request_expire_days": 7,
+    "friend_reject_block_days": 30
+  },
+  "peer_verify": {
+    "comment": "V1 同窗互证自动升级：好友申请 accept 后，某段经历的同单元好友数达到阈值即升 V1",
+    "min_same_unit_friends": 3,
+    "level": 1,
+    "source": "peer_review"
+  },
+  "content_safety": {
+    "blocked_message": "为保护双方安全，联系方式请在成为好友后交换",
+    "comment": "§20.5 申请验证语拦截：手机号/微信号(字母开头6-20位)/QQ号/加V 变体"
+  },
+  "token": {
+    "access_ttl_sec": 7200,
+    "refresh_ttl_sec": 2592000
+  },
+  "register": {
+    "min_age": 14,
+    "minor_max_age": 18,
+    "real_name_change_days": 365
+  },
+  "coin_tasks": {
+    "comment": "P0 纯赠送体系（虚拟币与打赏体系设计_V1 §1.3）：觅豆只能任务/活跃获得，无充值无提现；period=day 每日一次 / once 一次性 / per_target 每目标一次",
+    "daily_login": { "amount": 5, "period": "day", "remark": "每日活跃奖励" },
+    "edu_complete": { "amount": 10, "period": "once", "remark": "完善首条教育经历" },
+    "first_moment": { "amount": 10, "period": "once", "remark": "发布首条动态" },
+    "friend_accept": { "amount": 30, "period": "per_target", "remark": "成功添加一位好友" }
+  },
+  "red_packet": {
+    "comment": "红包玩法参数（设计_V1 §6.1 建议值）：单位均为觅豆；24h 未领完原路退回币账户（janitor 扫描）",
+    "max_total": 2000,
+    "min_per_share": 1,
+    "max_per_share": 200,
+    "max_count": 50,
+    "expire_hours": 24,
+    "daily_send_limit": 20
+  },
+  "gift": {
+    "comment": "动态打赏固定面额（设计_V1 §4.4）：P0 不产生现金收益，纯心意",
+    "denominations": [1, 5, 10, 52, 100],
+    "daily_limit": 50
+  },
+  "feature_gates": {
+    "comment": "按班级单元灰度（V3.0 §18.4）：群红包仅对点亮人数达标的班级单元开放",
+    "red_packet": { "min_registered": 15 }
+  }
+}

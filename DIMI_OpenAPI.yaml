@@ -1,0 +1,4554 @@
+openapi: 3.0.3
+info:
+  title: DIMI · 围城 API
+  description: |
+    DIMI · 围城 社交平台全量接口文档。
+    通用约定：
+    - 鉴权：`Authorization: Bearer <access_token>`（OAuth 接口除外）
+    - 响应结构：`{ code, message, data, trace_id }`，code=0 成功
+    - 分页：Feed/消息流用 cursor 游标；Discover 检索/推荐（/discover/classmates、
+      /discover/classmates/mine、/discover/fellows、/discover/recommendations、/discover/search-user）用 page/size
+      （page/size 须为正整数；page 默认 1，size 默认 20 上限 50，翻页深度受限），其响应 next_cursor 语义为
+      「下一页页码字符串，无下一页为 null」；先执行可见性过滤，再计算分页，隐藏用户不占页内名额
+    - 幂等：写接口支持 `Idempotency-Key` 请求头
+    - 安全约定：/media/* 为免鉴权随机名 URL（16 位 hex 不可猜），敏感素材请勿外链分享；
+      拉黑互查场景（如好友申请时任一方向存在拉黑）返回 200 + request_id:null 为刻意防探测设计，非异常
+    - 错误码段：40001 参数错误 / 40101 未登录 / 40301 隐私限制 / 42901 频控 /
+      41001 资源不存在 / 45001 内容安全拦截 / 50000 系统错误
+    - 姓名展示：所有返回用户对象的接口，real_name 字段由服务端按
+      「真名渐显矩阵」判定后直接返回展示值（全名/掩码/null），客户端不得二次加工
+    V3.0/V3.1 约定：
+    - 验证等级：教育经历按 V0 自述 / V1 同窗互证 / V2 证据验证 / V3 组织背书分层，
+      取代原 is_verified 布尔字段（§3.1）
+    - 人脸合规红线（A8）：不做人脸识别检索；人脸核验不作为唯一验证方式；
+      人脸特征即用即删（核验完成即删，仅留存结果记录，不存特征数据）；
+      人脸信息存储数量达 10 万人之日起 30 个工作日内向省级以上网信部门备案（A2.2）
+    - 会员红线：会员（DIMI+）只出售"自己能力的增强"，永不出售"他人信息的访问权"——
+      无检索豁免、无隐私突破、无推荐加权、不做隐身访问（§11.1）
+    - 资金红线：聚会 AA 仅记账不动钱，平台不碰支付、不经手资金（A6/A8）
+  version: 3.1.0
+servers:
+  - url: https://api.dimi.example.com/v1
+tags:
+  - { name: Auth, description: 账号与登录 }
+  - { name: Captcha, description: 滑块人机验证 }
+  - { name: Users, description: 用户资料 }
+  - { name: Educations, description: 教育经历 }
+  - { name: Hometown, description: 家乡与现居地 }
+  - { name: Discover, description: 找人（检索与推荐） }
+  - { name: Friends, description: 好友关系 }
+  - { name: Messages, description: 单聊/群聊消息 }
+  - { name: ClassGroups, description: 班级群聊（按班级单元自动聚班，V0.9 已实现） }
+  - { name: HometownGroups, description: 老乡群聊（按家乡同市自动聚群，与老乡圈同边界） }
+  - { name: HometownPages, description: 家乡页（镇级共建页+投稿，M1 已实现：最新区/浏览/点赞/关注/公开落地页；热度榜/置顶/守护人属 M2） }
+  - { name: Groups, description: 群组 }
+  - { name: Moments, description: 朋友圈 }
+  - { name: Articles, description: 长文（文章） }
+  - { name: Privacy, description: 隐私设置 }
+  - { name: OAuth, description: 开放平台（第三方登录） }
+  - { name: Notifications, description: 通知 }
+  - { name: Misc, description: 举报/反馈/申诉/基础数据 }
+  - { name: Wallet, description: 觅豆钱包/红包/动态打赏（P0 纯赠送体系：无充值、无提现、无现金价值，币来源仅任务赠送） }
+  - { name: Admin, description: 内部运营通道（/admin-api/*，不走 bearerAuth 用户鉴权，见各端点说明） }
+  - { name: Verification, description: 经历验证（V0–V3 分层验证） }
+  - { name: ClassPhotos, description: 云班级毕业照（标注与认领） }
+  - { name: Events, description: 聚会 }
+  - { name: Calendar, description: 场景日历 }
+  - { name: Assist, description: 代际协助（子女协助父母） }
+  - { name: Subscription, description: 会员（DIMI+） }
+  - { name: AI, description: 小觅助理 }
+  - { name: Safety, description: 算法与安全合规 }
+
+paths:
+  # ============ Captcha ============
+  /captcha/slider:
+    get:
+      tags: [Captcha]
+      summary: 获取滑块验证码挑战
+      description: |
+        免鉴权，限流 30 次/小时/IP。返回缺口纵坐标与确定性背景种子，客户端据此渲染背景与滑块；
+        缺口横坐标 target_x 只存服务端（范围 40–230），不下发。挑战一次性、5 分钟过期。
+      responses:
+        '200':
+          description: 挑战参数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          captcha_id: { type: string }
+                          width: { type: integer, example: 280 }
+                          height: { type: integer, example: 160 }
+                          notch_y: { type: integer, description: 缺口纵坐标 }
+                          bg_seed: { type: string, description: 客户端画确定性背景的种子 }
+                          expires_in: { type: integer, example: 300 }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /captcha/verify:
+    post:
+      tags: [Captcha]
+      summary: 校验滑块结果并签发一次性 captcha_token
+      description: |
+        校验 |x - target_x| <= 6。挑战无论成败都标记已用（防暴力枚举 x）。
+        通过则签发 captcha_token（随机串，5 分钟有效，消费后作废），
+        用于 42901 need_captcha 场景（检索超频/翻页过深等），经 query.captcha_token、
+        body.captcha_token 或 X-Captcha-Token 头携带；通过则放行并重置该计数窗口。
+        开发模式（DIMI_SMS_DEV=true）接受 dev_bypass 作为 token，生产拒绝。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [captcha_id, x]
+              properties:
+                captcha_id: { type: string }
+                x: { type: integer, description: 用户滑到的缺口横坐标 }
+      responses:
+        '200':
+          description: 验证通过
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          captcha_token: { type: string, description: 一次性，5 分钟有效 }
+                          expires_in: { type: integer, example: 300 }
+        '400':
+          description: 验证失败（challenge 不存在/过期/已用/偏差超容差）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "滑块验证失败，请重新获取验证码", data: null, trace_id: "t-001" }
+  # ============ Auth ============
+  /auth/sms/send:
+    post:
+      tags: [Auth]
+      summary: 发送短信验证码
+      description: |
+        同号 60s 内限 1 条，日限 10 条。默认不强制图形验证；触发频控上限时返回 42901
+        （data.need_captcha=true），客户端调 /captcha/slider + /captcha/verify 取得
+        captcha_token 后随请求重试（body.captcha_token / query / X-Captcha-Token 头），
+        验证通过即放行并重置该计数窗口。开发模式（DIMI_SMS_DEV=true）接受 dev_bypass。
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone]
+              properties:
+                phone: { type: string, example: "13800005678" }
+                captcha_token: { type: string, description: 触发 42901 need_captcha 后重试时携带的滑块验证通过凭证（一次性） }
+                scene: { type: string, enum: [register, login, reset_password, change_phone, set_password] }
+      responses:
+        '200': { $ref: '#/components/responses/OkEmpty' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: 手机号注册
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [phone, sms_code, nickname]
+              properties:
+                phone: { type: string }
+                sms_code: { type: string, example: "483920" }
+                nickname: { type: string, maxLength: 32 }
+                password: { type: string, description: 可选，可后补 }
+                gender: { type: integer, enum: [0, 1, 2] }
+                birth_year: { type: integer, example: 1984 }
+                invite_channel: { type: string, description: 邀请渠道码（召集令/校友会） }
+                agreement_version: { type: string, maxLength: 32, description: 可选，注册时勾选的《用户服务协议》《隐私政策》版本号（如 ua-0.9+pp-0.9），写入审计日志留痕 }
+      responses:
+        '200':
+          description: 注册成功，返回 token 与用户对象（need_verify 恒为 0，与登录响应对齐）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/AuthToken'
+                          - type: object
+                            properties:
+                              need_verify: { type: integer, enum: [0, 1], description: 注册场景恒为 0 }
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: 登录（验证码/密码/第三方）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grant_type]
+              properties:
+                grant_type: { type: string, enum: [sms, password, wechat, apple, one_click], description: 当前实现仅支持 sms / password；wechat / apple / one_click 为规划态（第三方登录 V1.x） }
+                phone: { type: string }
+                sms_code: { type: string }
+                password: { type: string }
+                third_token: { type: string, description: 微信/Apple/运营商授权凭证（规划态，随 grant_type 第三方档位开放） }
+                device_info: { type: string, example: "iPhone 15 Pro / iOS 18", description: 设备描述串（≤128 字，缺省取 User-Agent），用于登录设备管理 }
+      responses:
+        '200':
+          description: 登录成功；新设备/异地登录可能返回 need_verify=1 要求二次验证
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/AuthToken'
+                          - type: object
+                            properties:
+                              need_verify: { type: integer, enum: [0, 1] }
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: 刷新 access_token（滑动续期）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refresh_token]
+              properties: { refresh_token: { type: string } }
+      responses:
+        '200':
+          description: 新 token 对
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AuthToken' }
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: 退出当前设备
+      security: [{ bearerAuth: [] }]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /auth/devices:
+    get:
+      tags: [Auth]
+      summary: 登录设备列表
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 设备列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/DeviceInfo' }
+  /auth/devices/{device_id}:
+    delete:
+      tags: [Auth]
+      summary: 下线指定设备
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: device_id, in: path, required: true, schema: { type: string } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /auth/deactivate:
+    post:
+      tags: [Auth]
+      summary: 注销账号（7 天冷静期，期间登录即撤销）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [sms_code]
+              properties:
+                sms_code: { type: string, description: 二次验证 }
+                reason: { type: string }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /auth/password:
+    post:
+      tags: [Auth]
+      summary: 设置/修改登录密码（敏感操作，短信二次验证）
+      description: 注册后补设密码与已有密码改密共用本端点；新密码 ≥8 位，按 scrypt 哈希存储
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [new_password, sms_code]
+              properties:
+                new_password: { type: string, minLength: 8, maxLength: 64 }
+                sms_code: { type: string, description: 本机手机号收到的短信验证码（二次验证） }
+      responses:
+        '200':
+          description: 设置成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          password_set: { type: boolean }
+                          changed: { type: boolean, description: true=改密（原已有密码），false=首次设置 }
+        '400':
+          description: 密码不合规或验证码错误
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "验证码错误或已过期", data: null, trace_id: "t-001" }
+
+  # ============ Users ============
+  /users/me:
+    get:
+      tags: [Users]
+      summary: 我的完整资料（含设置）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 用户对象（本人视角，全字段）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserSelf' }
+    put:
+      tags: [Users]
+      summary: 更新资料
+      description: real_name 每年限改 1 次（超限返回 40001）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                nickname: { type: string, maxLength: 32 }
+                real_name: { type: string, maxLength: 32 }
+                avatar_url: { type: string, description: 头像地址；取 /misc/upload 返回的 /media/ url（jpg/jpeg/png/webp）原样提交 }
+                avatar_media_id: { type: string, deprecated: true, description: 旧字段名，等价于 avatar_url，新客户端请用 avatar_url }
+                moment_cover: { type: string, nullable: true, description: 朋友圈封面；取 /misc/upload 返回的 /media/ url（jpg/jpeg/png/webp）原样提交，null 表示清除，非法值返回 40001 }
+                gender: { type: integer, enum: [0, 1, 2] }
+                birth_year: { type: integer, nullable: true }
+                signature: { type: string, maxLength: 60 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /users/me/dimi-no:
+    put:
+      tags: [Users]
+      summary: 设置或修改 DIMI 号
+      description: |
+        首次可设置，此后每 365 天可修改一次。字母开头，6–20 位字母、数字、下划线或短横线，
+        大小写不敏感并统一小写。DM 纯数字号为系统保留；旧号不再可搜索且禁止其他账号占用。
+        重复提交当前号不消耗修改机会。二维码与好友关系使用稳定 user_id，不受修改影响。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [dimi_no]
+              properties:
+                dimi_no: { type: string, minLength: 6, maxLength: 20, example: dimi_friend }
+      responses:
+        '200':
+          description: 更新后的本人资料
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserSelf' }
+        '400':
+          description: 40001 格式错误、号已占用或仍在修改间隔内
+  /users/{user_id}:
+    get:
+      tags: [Users]
+      summary: 查看他人资料卡
+      description: |
+        返回字段经可见性决策引擎处理：不满足可见性的字段整块缺省（不返回），
+        而非返回占位值。含 intersection（双方交集标签快照）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: user_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 他人视角用户对象（字段按需缺省）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/UserCard' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+  /users/me/contacts-visibility:
+    get:
+      tags: [Users]
+      summary: 获取联系方式可见范围（手机号/微信号/邮箱分项）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 三项可见范围（未设置项默认 self）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          contacts_visibility:
+                            type: object
+                            properties:
+                              phone: { $ref: '#/components/schemas/ContactVisibility' }
+                              wechat: { $ref: '#/components/schemas/ContactVisibility' }
+                              email: { $ref: '#/components/schemas/ContactVisibility' }
+    put:
+      tags: [Users]
+      summary: 设置联系方式可见范围（手机号/微信号/邮箱分项）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                phone: { $ref: '#/components/schemas/ContactVisibility' }
+                wechat: { $ref: '#/components/schemas/ContactVisibility' }
+                email: { $ref: '#/components/schemas/ContactVisibility' }
+      responses:
+        '200':
+          description: 设置成功，返回最新三项可见范围（未设置项默认 self）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          contacts_visibility:
+                            type: object
+                            properties:
+                              phone: { $ref: '#/components/schemas/ContactVisibility' }
+                              wechat: { $ref: '#/components/schemas/ContactVisibility' }
+                              email: { $ref: '#/components/schemas/ContactVisibility' }
+  /users/me/contact-viewers:
+    get:
+      tags: [Users]
+      summary: 谁查看过我的联系方式（审计回看，仅近 30 天）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: cursor, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: 查看记录分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CursorPage_UserBrief' }
+
+  # ============ Educations ============
+  /users/me/educations:
+    get:
+      tags: [Educations]
+      summary: 我的教育经历列表
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 经历列表（每条含已注册同学数预览）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Education' }
+    post:
+      tags: [Educations]
+      summary: 添加教育经历
+      description: 同学段可多条（转学/复读）；班级名服务端归一化
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [stage, school_id, enroll_year]
+              properties:
+                stage: { $ref: '#/components/schemas/Stage' }
+                school_id: { type: integer, format: int64 }
+                school_name_snapshot: { type: string, description: 入学时校名 }
+                enroll_year: { type: integer, example: 1996 }
+                class_name: { type: string, example: "六年2班" }
+                department: { type: string, description: 大学：院系 }
+                major: { type: string, description: 大学：专业 }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+      responses:
+        '200':
+          description: 创建成功；data.registered_count 为该经历已注册同学数（冷启动钩子）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          education: { $ref: '#/components/schemas/Education' }
+                          registered_count: { type: integer, example: 89 }
+  /users/me/educations/{education_id}:
+    put:
+      tags: [Educations]
+      summary: 修改经历（含可见性）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: education_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Education' }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    delete:
+      tags: [Educations]
+      summary: 删除经历（将同步影响交集计算与同窗标记）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: education_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /schools/search:
+    get:
+      tags: [Educations]
+      summary: 学校联想搜索（支持曾用名/简称/模糊纠错）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: keyword, in: query, required: true, schema: { type: string }, example: 城关二小 }
+        - { name: region_code, in: query, schema: { type: string }, description: 限定地区提高准确度 }
+      responses:
+        '200':
+          description: 学校候选列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/School' }
+  /schools/apply:
+    post:
+      tags: [Educations]
+      summary: 申请共建新学校（运营审核 SLA 3 个工作日）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, region_code]
+              properties:
+                name: { type: string }
+                region_code: { type: string }
+                evidence_urls: { type: array, items: { type: string }, description: 佐证材料 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ Hometown ============
+  /users/me/hometown:
+    get:
+      tags: [Hometown]
+      summary: 我的家乡/现居地列表
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 家乡（type=1）与现居地（type=2）列表，path 为行政区划链路名称
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                type: { type: integer, enum: [1, 2], description: 1 家乡 / 2 现居地 }
+                                region_code: { type: string, example: "411623102" }
+                                region_name: { type: string, nullable: true, example: 城关镇, description: 最末级行政区名 }
+                                path: { type: array, items: { type: string }, example: ["河南省", "周口市", "沈丘县", "城关镇"], description: 省→市→区县→镇 名称链 }
+                                visibility: { $ref: '#/components/schemas/Visibility' }
+    put:
+      tags: [Hometown]
+      summary: 设置家乡（精确到镇）/现居地（到城市）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, region_code]
+              properties:
+                type: { type: integer, enum: [1, 2], description: 1 家乡 / 2 现居地 }
+                region_code: { type: string, example: "411623102", description: 四级行政区划码 }
+                visibility: { $ref: '#/components/schemas/Visibility' }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /regions:
+    get:
+      tags: [Hometown]
+      summary: 行政区划树查询（四级联动数据源）
+      parameters:
+        - { name: parent_code, in: query, schema: { type: string }, description: 空=省级列表 }
+        - { name: tree, in: query, schema: { type: string, enum: ["1", "true"] }, description: 传 1/true 返回整棵嵌套树（元素含 children 递归字段），与 parent_code 模式互斥 }
+      responses:
+        '200':
+          description: 下级地区列表；tree=1 时为全量嵌套树（children 递归同结构）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                code: { type: string }
+                                name: { type: string }
+                                level: { type: integer, enum: [1, 2, 3, 4] }
+                                children: { type: array, items: { type: object }, description: 仅 tree=1 时返回，递归同结构 }
+
+  # ============ Discover ============
+  /discover/classmates:
+    get:
+      tags: [Discover]
+      summary: 找同学检索（锚点强制：学校+届）
+      description: |
+        姓名检索必须携带 school_id+enroll_year；频控 60 次/小时，
+        翻页深度 ≤200 条；返回姓名按渐显矩阵处理
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: school_id, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: enroll_year, in: query, required: true, schema: { type: integer } }
+        - { name: class_norm, in: query, schema: { type: string }, description: 归一化班级 }
+        - { name: name, in: query, schema: { type: string }, description: 姓名（可选，支持模糊） }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 }, description: 页码，从 1 开始 }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 50 }, description: 每页条数，上限 50 }
+      responses:
+        '200':
+          description: 结果列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DiscoverResult' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /discover/classmates/mine:
+    get:
+      tags: [Discover]
+      summary: 我的某段经历下的同学名录（同班/同届/同校三 Tab）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: education_id, in: query, required: true, schema: { type: integer, format: int64 } }
+        - { name: scope, in: query, schema: { type: string, enum: [class, grade, school], default: class } }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 }, description: 页码，从 1 开始 }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 50 }, description: 每页条数，上限 50 }
+      responses:
+        '200':
+          description: 同学名录
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DiscoverResult' }
+  /discover/fellows:
+    get:
+      tags: [Discover]
+      summary: 找老乡检索（锚点：区县以上地区）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: region_code, in: query, required: true, schema: { type: string } }
+        - { name: level, in: query, schema: { type: integer, enum: [2, 3, 4], default: 3 }, description: 匹配粒度 }
+        - { name: name, in: query, schema: { type: string } }
+        - { name: gender, in: query, schema: { type: integer, enum: [1, 2] } }
+        - { name: age_range, in: query, schema: { type: string, example: "1980-1990" } }
+        - { name: live_city_code, in: query, schema: { type: string }, description: 现居城市筛选 }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 } }
+        - { name: size, in: query, schema: { type: integer, default: 20, minimum: 1, maximum: 50 } }
+      responses:
+        '200':
+          description: 同乡列表（女性保护规则由服务端施加）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DiscoverResult' }
+  /discover/recommendations:
+    get:
+      tags: [Discover]
+      summary: 推荐 Feed（人脉首页卡片流）
+      description: |
+        personalized_recommend=false 时返回空 items 和 next_cursor=null，不影响主动检索。
+        推荐排除已是好友、双向尚未过期的待处理好友申请，以及本人标记不感兴趣的对象。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: scene, in: query, schema: { type: string, enum: [home, classmate, fellow], default: home } }
+        - { name: page, in: query, schema: { type: integer, default: 1, minimum: 1 }, description: 页码，从 1 开始 }
+        - { name: size, in: query, schema: { type: integer, default: 20, maximum: 50 }, description: 每页条数，上限 50 }
+      responses:
+        '200':
+          description: 推荐卡片（含 reason 推荐理由标签，必显）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DiscoverResult' }
+  /discover/feedback:
+    post:
+      tags: [Discover]
+      summary: 推荐负反馈（不感兴趣/减少此类）
+      description: not_interested 会排除该对象；reduce_similar 目前仅记录反馈，尚无同类降权策略，客户端不展示该选项。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_user_id, action]
+              properties:
+                target_user_id: { type: integer, format: int64 }
+                action: { type: string, enum: [not_interested, reduce_similar] }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /discover/placeholders:
+    get:
+      tags: [Discover]
+      summary: 班级预占位名册（沉睡名字，不含任何联系方式；A7「沉睡不可见」原则）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: education_id, in: query, schema: { type: integer, format: int64 }, description: 与 school_id+enroll_year+class_norm 二选一 }
+        - { name: school_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: enroll_year, in: query, schema: { type: integer } }
+        - { name: class_norm, in: query, schema: { type: string }, description: 归一化班级 }
+      responses:
+        '200':
+          description: 名册（rally_ready=true 表示该班已达召集令触发条件，即已注册 ≥3 人）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PlaceholderRoster' }
+    post:
+      tags: [Discover]
+      summary: 为未注册同学"点亮名字"（预占位）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [education_id, name]
+              properties:
+                education_id: { type: integer, format: int64 }
+                name: { type: string }
+      responses:
+        '200':
+          description: 占位成功；data.rally_ready=true 表示该班已达召集令触发条件（≥3 人）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PlaceholderRoster' }
+  /discover/search-user:
+    get:
+      tags: [Discover]
+      summary: DIMI号/手机号精确找人
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: dimi_no, in: query, schema: { type: string } }
+        - { name: phone, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 精确匹配（0 或 1 条）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/DiscoverResult' }
+
+  # ============ Friends ============
+  /friends/requests:
+    post:
+      tags: [Friends]
+      summary: 发送好友申请（验证语必填；联系方式模式将被拦截 45001）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_user_id, verify_msg]
+              properties:
+                to_user_id: { type: integer, format: int64 }
+                verify_msg: { type: string, maxLength: 50, example: 我是96届六年2班的王丽 }
+                attach_real_name: { type: boolean, default: true, description: 向对方披露真名 }
+                attach_education: { type: boolean, default: false }
+                source: { type: string, enum: [classmate_search, fellow_search, recommendation, group, qrcode, dimi_no, contact_match, business_card] }
+      responses:
+        '200':
+          description: |
+            申请已受理。任一方向存在拉黑时静默返回 200 + request_id:null（刻意防探测设计，§22.2 [1]）；
+            已有 pending 申请时幂等返回原 request_id 且 duplicated=true
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          request_id: { type: integer, format: int64, nullable: true, description: 拉黑互查命中时为 null（防探测） }
+                          duplicated: { type: boolean, description: true=存在 pending 申请，幂等返回原单 }
+        '450': { $ref: '#/components/responses/ContentBlocked' }
+    get:
+      tags: [Friends]
+      summary: 申请列表（收件箱/发件箱）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: box, in: query, schema: { type: string, enum: [inbox, outbox], default: inbox } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 申请列表（含交集快照 intersection_snapshot）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/FriendRequest' }
+                          next_cursor: { type: string, nullable: true }
+  /friends/requests/{request_id}/accept:
+    post:
+      tags: [Friends]
+      summary: 通过申请（服务端自动生成交集破冰消息）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 建立好友关系，返回会话 ID
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          conversation_id: { type: integer, format: int64 }
+  /friends/requests/{request_id}/reject:
+    post:
+      tags: [Friends]
+      summary: 拒绝申请（不通知对方，30 天内对方不可再申请）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: request_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /friends:
+    get:
+      tags: [Friends]
+      summary: 好友列表（含标签分组）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: tag, in: query, schema: { type: string } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 好友分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CursorPage_UserBrief' }
+  /friends/{friend_id}:
+    put:
+      tags: [Friends]
+      summary: 设置备注/标签/星标
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: friend_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                remark_name: { type: string, maxLength: 32 }
+                tags: { type: array, items: { type: string } }
+                is_starred: { type: boolean }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    delete:
+      tags: [Friends]
+      summary: 删除好友（单向删除，对齐微信）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: friend_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /friends/{friend_id}/block:
+    post:
+      tags: [Friends]
+      summary: 拉黑（双向断联：不可检索/消息/朋友圈）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: friend_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    delete:
+      tags: [Friends]
+      summary: 移出黑名单
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: friend_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /friends/blocks:
+    get:
+      tags: [Friends]
+      summary: 黑名单列表（管理闭环：拉黑后可在此查看/解除）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 我拉黑的用户列表（按拉黑时间倒序，不分页）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              allOf:
+                                - $ref: '#/components/schemas/UserBrief'
+                                - type: object
+                                  properties:
+                                    blocked_at: { type: string, format: date-time }
+
+  # ============ Messages ============
+  /conversations:
+    post:
+      tags: [Messages]
+      summary: 发起单聊会话（幂等：已有会话直接返回）
+      description: 陌生人消息（§9.3.2）：V0.9 仅好友可发起单聊，非好友 40301
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [to_user_id]
+              properties:
+                to_user_id: { type: integer, format: int64 }
+      responses:
+        '200':
+          description: 会话对象（已有会话幂等返回）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Conversation' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+    get:
+      tags: [Messages]
+      summary: 会话列表
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: cursor, in: query, schema: { type: string } } ]
+      responses:
+        '200':
+          description: 会话分页（含未读数/免打扰/置顶）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Conversation' }
+                          next_cursor: { type: string, nullable: true }
+  /conversations/{conv_id}:
+    delete:
+      tags: [Messages]
+      summary: 删除本人的聊天和历史记录
+      description: |
+        仅清除本人的历史消息可见位点并隐藏会话；不影响对方记录、好友关系或群成员身份。
+        新消息使会话重新出现；历史分页和增量接口均不可读取已清除记录。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+  /conversations/{conv_id}/messages:
+    post:
+      tags: [Messages]
+      summary: 发送消息（client_msg_id 幂等防重）
+      description: |
+        单聊（conv_type=single）：须为好友且未被拉黑，否则 40301。
+        群聊（conv_type=group，班级群）：群成员即可发言，不要求互为好友，跳过好友/拉黑校验；
+        群发言频控 30 条/60s（群维度独立计数，超限 42901）。非会话成员一律 40301。
+        image/voice/video 消息的 content 须为 /misc/upload 返回的媒体 url，扩展名按类型分档
+        （image=jpg/jpeg/png/webp，voice=m4a/aac，video=mp4/mov），不符 40001。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [client_msg_id, msg_type]
+              properties:
+                client_msg_id: { type: string, description: 客户端幂等键 }
+                msg_type: { $ref: '#/components/schemas/MsgType' }
+                content: { type: string, description: 文本内容/媒体 media_id/位置JSON }
+                at_user_ids: { type: array, items: { type: integer, format: int64 }, description: 群内@ }
+      responses:
+        '200':
+          description: 消息已受理
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          msg_id: { type: integer, format: int64 }
+                          server_time: { type: string, format: date-time }
+    get:
+      tags: [Messages]
+      summary: 拉取历史消息（漫游）
+      description: |
+        两种模式互斥：
+        - 默认 cursor 游标分页：倒序返回最近一页，next_cursor 续拉更早消息；
+        - 传 since_msg_id 进入增量模式：返回该 msg_id 之后的消息（正序，封顶 limit 条），
+          next_cursor 恒为 null，用于断线重连后的增量同步。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: cursor, in: query, schema: { type: string }, description: 空=最新一页 }
+        - { name: since_msg_id, in: query, schema: { type: integer, format: int64 }, description: 增量模式：只返回该消息之后的消息（正序）；与 cursor 互斥，传了优先生效 }
+        - { name: limit, in: query, schema: { type: integer, default: 20, maximum: 50 } }
+      responses:
+        '200':
+          description: 消息分页（倒序）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Message' }
+                          next_cursor: { type: string, nullable: true }
+  /conversations/{conv_id}/read:
+    post:
+      tags: [Messages]
+      summary: 上报已读位置
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties: { last_read_msg_id: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /messages/{msg_id}/recall:
+    post:
+      tags: [Messages]
+      summary: 撤回消息（发送后 2 分钟内）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: msg_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /conversations/{conv_id}/settings:
+    put:
+      tags: [Messages]
+      summary: 会话设置（置顶/免打扰/折叠）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                is_pinned: { type: boolean }
+                is_muted: { type: boolean }
+                is_folded: { type: boolean }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /conversations/{conv_id}/contact-card:
+    post:
+      tags: [Messages]
+      summary: 发起"交换联系方式"卡片（§20.4）【规划态 V1.x，当前未实现】
+      description: 规划态 V1.x，当前服务端未实现；契约先行，客户端不得依赖该端点可用
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [items]
+              properties:
+                items:
+                  type: array
+                  items: { type: string, enum: [phone, wechat, email] }
+                  description: 要分享的联系方式项
+                request_reciprocal: { type: boolean, default: false, description: 请求对方回赠 }
+                view_once: { type: boolean, default: false, description: 阅后隐藏（禁截屏） }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /conversations/{conv_id}/contact-card/{card_id}/revoke:
+    post:
+      tags: [Messages]
+      summary: 撤回我共享的联系方式（对方端卡片失效）【规划态 V1.x，当前未实现】
+      description: 规划态 V1.x，当前服务端未实现；契约先行，客户端不得依赖该端点可用
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: card_id, in: path, required: true, schema: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ ClassGroups（班级群聊，V0.9 已实现并联调通过） ============
+  # 语义：班级单元（school_id+enroll_year+class_name_norm）一一对应一个群会话；
+  # 入群依据=本人有该班级单元的教育经历（与 Groups 的手动拉人群组模型相互独立，见 Groups 段注释）；
+  # 群成员不要求互为好友；群主=建群者，退群顺延最早加入者，空群后下一位加入者继任群主。
+  /class-groups/mine:
+    get:
+      tags: [ClassGroups]
+      summary: 我的班级单元及群信息
+      description: |
+        按教育经历（class_name_norm 非空）列出我的全部班级单元，按 enroll_year 升序。
+        每个单元 LEFT JOIN 班级群：群尚未创建时 group=null；已创建时返回群信息，
+        joined 标识我是否在群内，unread_count 为我的未读数（未入群恒为 0，未读位点按成员独立）。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 班级单元列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ClassGroupUnit' }
+  /class-groups/join:
+    post:
+      tags: [ClassGroups]
+      summary: 加入（或创建）班级群
+      description: |
+        幂等：群不存在则由本次调用创建（created=true，调用者成为群主并直接入群）；
+        已存在则直接入群（created=false），重复调用不产生重复成员。
+        入群依据=本人教育经历中存在该班级单元（school_id+enroll_year+class_name_norm 三元组），
+        否则 40301；不要求与其他群成员互为好友。群无主（created_by 为 NULL，正常路径=空群待任）
+        时由本次加入者继任群主。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [school_id, enroll_year]
+              properties:
+                school_id: { type: integer, format: int64, example: 1001 }
+                enroll_year: { type: integer, example: 1996 }
+                class_name_norm: { type: string, example: "6-2", description: 规范化班名；与 class_name 二选一，优先生效 }
+                class_name: { type: string, example: 六年2班, description: 班名原文，服务端规范化后匹配；与 class_name_norm 二选一 }
+      responses:
+        '200':
+          description: 入群成功（含本次是否新建群）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ClassGroupJoinResult' }
+        '400':
+          description: 参数缺失（school_id/enroll_year 必填；class_name_norm/class_name 至少其一）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "school_id / enroll_year 必填", data: null, trace_id: "t-001" }
+        '403':
+          description: 非本班——本人教育经历中没有该班级单元（40301）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - example: { code: 40301, message: "仅本班同学可加入：你的教育经历中没有该班级", data: null, trace_id: "t-002" }
+  /class-groups/{conv_id}/members:
+    get:
+      tags: [ClassGroups]
+      summary: 班级群成员列表（须为群成员）
+      description: |
+        姓名展示走可见性引擎（与资料卡同一渐显规则）：非好友同班成员的 real_name 按渐显矩阵掩码，
+        客户端不得二次加工。is_owner 标记群主。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 成员列表与群主 ID（空群待任时 owner_id 为 null）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ClassGroupMember' }
+                          owner_id: { type: integer, format: int64, nullable: true }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 班级群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "班级群不存在", data: null, trace_id: "t-001" }
+  /class-groups/{conv_id}/announcement:
+    put:
+      tags: [ClassGroups]
+      summary: 修改群公告（仅群主，≤200 字）
+      description: 须为群成员且是群主，否则 40301；公告超过 200 字（按字符计）返回 40001。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                announcement: { type: string, maxLength: 200, example: 本周六上午十点母校门口集合 }
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          announcement: { type: string }
+        '400':
+          description: 群公告超过 200 字（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "群公告不超过 200 字", data: null, trace_id: "t-001" }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 班级群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "班级群不存在", data: null, trace_id: "t-001" }
+  /class-groups/{conv_id}/leave:
+    post:
+      tags: [ClassGroups]
+      summary: 退出班级群
+      description: |
+        移出群成员（退群后发言/拉消息 40301，未读位点随之清除）。
+        群主退群且群内还有人 → 群主顺延给最早加入者；退群后群内无人 → created_by 置 NULL，
+        群与消息历史保留，由下一位加入者继任群主。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200': { $ref: '#/components/responses/OkEmpty' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 班级群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "班级群不存在", data: null, trace_id: "t-001" }
+
+  # ============ HometownGroups（老乡群聊，与老乡圈同边界） ============
+  # 语义：家乡同市单元（user_hometowns type=1 的 region_code 前 4 位市级前缀）一一对应一个群会话；
+  # 入群依据=本人已设置家乡（type=1，四级行政区划），无 body 参数；群成员不要求互为好友；
+  # 群主=建群者，退群顺延最早加入者，空群后下一位加入者继任群主（规则与 ClassGroups 一致）。
+  /hometown-groups/mine:
+    get:
+      tags: [HometownGroups]
+      summary: 我的老乡群信息
+      description: |
+        以本人家乡（type=1）为准：未设置家乡时 items 为空数组；已设置时返回 1 条，
+        region_name 为市级行政区名（region_code 前 4 位前缀匹配 regions level=2）。
+        LEFT JOIN 老乡群：群尚未创建时 group=null；已创建时返回群信息，
+        joined 标识我是否在群内，unread_count 为我的未读数（未入群恒为 0，未读位点按成员独立）。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 老乡群单元列表（0 或 1 条）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/HometownGroupUnit' }
+  /hometown-groups/join:
+    post:
+      tags: [HometownGroups]
+      summary: 加入（或创建）老乡群
+      description: |
+        可选 body.region_code 指定当前浏览的家乡页；与本人家乡不同市时返回 40301。未传时以本人家乡（type=1）的市级前缀为准。幂等：群不存在则由本次调用创建
+        （created=true，调用者成为群主并直接入群，群标题形如"{市名}老乡群"）；
+        已存在则直接入群（created=false），重复调用不产生重复成员。
+        未设置家乡（type=1）时 40301；不要求与其他群成员互为好友。
+        群无主（created_by 为 NULL，正常路径=空群待任）时由本次加入者继任群主。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                region_code: { type: string, description: 当前家乡页的行政区划编码，须与本人家乡同市 }
+      responses:
+        '200':
+          description: 入群成功（含本次是否新建群）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/HometownGroupJoinResult' }
+        '403':
+          description: 未设置家乡（40301）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - example: { code: 40301, message: "先设置家乡才能加入老乡群", data: null, trace_id: "t-002" }
+  /hometown-groups/{conv_id}/members:
+    get:
+      tags: [HometownGroups]
+      summary: 老乡群成员列表（须为群成员）
+      description: |
+        姓名展示走可见性引擎（与资料卡同一渐显规则，scene=class_group 同款）：
+        非好友同乡成员的 real_name 按渐显矩阵掩码，客户端不得二次加工。is_owner 标记群主。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 成员列表与群主 ID（空群待任时 owner_id 为 null）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/HometownGroupMember' }
+                          owner_id: { type: integer, format: int64, nullable: true }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 老乡群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "老乡群不存在", data: null, trace_id: "t-001" }
+  /hometown-groups/{conv_id}/announcement:
+    put:
+      tags: [HometownGroups]
+      summary: 修改群公告（仅群主，≤200 字）
+      description: 须为群成员且是群主，否则 40301；公告超过 200 字（按字符计）返回 40001。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                announcement: { type: string, maxLength: 200, example: 春节拼车接龙 }
+      responses:
+        '200':
+          description: 修改成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          announcement: { type: string }
+        '400':
+          description: 群公告超过 200 字（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "群公告不超过 200 字", data: null, trace_id: "t-001" }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 老乡群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "老乡群不存在", data: null, trace_id: "t-001" }
+  /hometown-groups/{conv_id}/leave:
+    post:
+      tags: [HometownGroups]
+      summary: 退出老乡群
+      description: |
+        移出群成员（退群后发言/拉消息 40301，未读位点随之清除）。
+        群主退群且群内还有人 → 群主顺延给最早加入者；退群后群内无人 → created_by 置 NULL，
+        群与消息历史保留，由下一位加入者继任群主。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: conv_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200': { $ref: '#/components/responses/OkEmpty' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 老乡群不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "老乡群不存在", data: null, trace_id: "t-001" }
+
+  # ============ HometownPages（家乡页·镇级共建，M1 已实现范围） ============
+  # 语义：镇级行政区划（regions level=4）一页，页面记录首次投稿/关注时创建（GET 页聚合为懒返回缺省，
+  # 不在读路径落库）；content_count 为查询时实时 COUNT（status=published），不依赖冗余列；
+  # 投稿资格与老乡圈/老乡群同边界（作者籍贯 user_hometowns type=1 与目标镇市级前缀前 4 位一致，
+  # 不符 40301「只有当地老乡才能向该家乡页投稿」）；投稿频控 5 条/日/人（42901，落库成功后才计数）；
+  # 关注/取关频控 100 次/日/人（42901）；联系方式/导流机器拦截 45001（M1 无审核队列，机器拦截即初审，
+  # 通过直接 published）。
+  # 作者隐私口径：作者家乡可见性（user_hometowns.visibility 或 privacy_settings.hometown_visibility）
+  # 任一为 private 时，其内容对非作者一律缺省（列表过滤 / 详情 41001）；公开落地页再收紧，
+  # 仅双入口均 public 的作者内容入选，昵称掩码下发。
+  # M1 不做：热度榜/名片区/置顶/守护人（hometown_contents 的 pinned_by/pinned_at/heat/gift_coins
+  # 字段按设计 §9 预留，M2 再消费，当前接口不返回）。
+  /hometown-pages/followed/mine:
+    get:
+      tags: [HometownPages]
+      summary: 我关注的家乡页列表
+      description: 按关注时间倒序，上限 100 条；随账号跨设备同步。注意须在 /hometown-pages/{region_code} 之前注册（先注册先匹配）。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 关注列表
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  code: { $ref: '#/components/schemas/ResponseCode' }
+                  message: { type: string }
+                  trace_id: { type: string }
+                  data:
+                    type: object
+                    properties:
+                      items:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            region_code: { type: string }
+                            region_path: { type: array, items: { type: string } }
+                            cover_media: { type: string, nullable: true }
+                            follower_count: { type: integer }
+                            content_count: { type: integer, description: 实时 COUNT（published） }
+                            followed_at: { type: string, format: date-time }
+  /hometown-pages/{region_code}:
+    get:
+      tags: [HometownPages]
+      summary: 家乡页聚合（页不存在时懒返回缺省，不落库）
+      description: |
+        region_path 为省/市/区县/镇名称逐级数组（regions 表祖先链）；
+        can_post=我籍贯与该镇同市（前 4 位前缀一致）；is_following=我是否已关注；
+        group 为该市老乡群入口卡（复用 hometown_groups，群未创建为 null）。
+        页面记录未创建时返回缺省（cover_media=null、intro=""、follower_count=0），
+        建页只在写路径发生（首次投稿 / 首次关注）；content_count 为实时 COUNT（published）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: region_code, in: path, required: true, schema: { type: string }, example: "411623102", description: 镇级行政区划码（四级） } ]
+      responses:
+        '200':
+          description: 家乡页聚合数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/HometownPage' }
+        '400':
+          description: 非四级行政区划（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "家乡页以乡镇/街道（四级行政区划）为单位", data: null, trace_id: "t-001" }
+        '404':
+          description: 行政区划不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "行政区划不存在", data: null, trace_id: "t-001" }
+  /hometown-pages/{region_code}/contents:
+    get:
+      tags: [HometownPages]
+      summary: 家乡页内容分页（最新区，倒序 cursor）
+      description: |
+        status=published 且归属该镇的内容按 content_id 倒序 cursor 分页 20 条，category 可选过滤。
+        低密度兜底：该镇内容 <5 条且无 cursor 时，附加 rollup_items=同县（前 6 位）其他镇最新内容
+        最多 5 条（每条带 rolled_up:true 标记）；翻页（带 cursor）不触发兜底。
+        顶层 rolled_up=是否存在兜底内容（rollup_items 非空），客户端据此渲染兜底分区。
+        作者家乡两处可见性取交集：private 仅本人，friends 仅好友，fellows_only 同市老乡或好友，public 公开；双向拉黑和非活跃作者内容不下发。先做可见性过滤再分页。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: region_code, in: path, required: true, schema: { type: string }, example: "411623102" }
+        - { name: category, in: query, schema: { type: string, enum: [scenery, product, craft, story] }, description: 风光/特产/手艺/故事 }
+        - { name: cursor, in: query, schema: { type: string }, description: 上一页末条 content_id }
+      responses:
+        '200':
+          description: 内容分页（含低密度兜底）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/HometownContent' }
+                          rollup_items:
+                            type: array
+                            description: 低密度兜底（同县其他镇，均带 rolled_up:true）
+                            items: { $ref: '#/components/schemas/HometownContent' }
+                          rolled_up: { type: boolean, description: 顶层兜底标记：rollup_items 非空即 true }
+                          next_cursor: { type: string, nullable: true }
+        '400':
+          description: 参数错误（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "参数错误", data: null, trace_id: "t-001" }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+  /hometown-contents:
+    post:
+      tags: [HometownPages]
+      summary: 投稿家乡页（幂等，资格门禁+频控+内容拦截）
+      description: |
+        支持 Idempotency-Key 通用幂等层（重放返回原内容，message=ok(idempotent)）。
+        校验顺序：区划与参数（40001）→ 投稿资格（40301：作者籍贯与目标镇市级前缀前 4 位一致）
+        → 联系方式/导流拦截（45001，落审计 content_block）→ 频控 5 条/日/人（42901）。
+        M1 无审核队列：通过即 status=published，首次投稿自动建页并落审计（hometown_content_publish）；
+        频控计数在 INSERT 成功后（校验失败/拦截不占当日额度），content_count 为查询时实时计数。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [region_code, category, title]
+              properties:
+                region_code: { type: string, example: "411623102", description: 目标镇（四级行政区划） }
+                category: { type: string, enum: [scenery, product, craft, story] }
+                title: { type: string, maxLength: 60, example: 沙河渡口晚霞 }
+                body: { type: string, maxLength: 20000 }
+                media:
+                  type: array
+                  maxItems: 9
+                  items: { type: string, description: /misc/upload 返回的媒体 url（jpg/jpeg/png/webp） }
+      responses:
+        '200':
+          description: 投稿成功（直接 published）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/HometownContent' }
+        '400':
+          description: 参数错误（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "参数错误", data: null, trace_id: "t-001" }
+        '403':
+          description: 非当地老乡（40301）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40301, message: "只有当地老乡才能向该家乡页投稿", data: null, trace_id: "t-001" }
+        '429':
+          description: 今日投稿已达上限（42901，5 条/日/人）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 42901, message: "今日投稿已达上限（5 条/日）", data: { captcha_required: true }, trace_id: "t-001" }
+        '450':
+          description: 内容包含联系方式或导流信息（45001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 45001, message: "内容包含联系方式或导流信息，已被拦截", data: null, trace_id: "t-001" }
+  /hometown-contents/{content_id}:
+    delete:
+      tags: [HometownPages]
+      summary: 删除本人投稿
+      description: 仅作者可操作。软删除后列表、详情、点赞及公开分享页立即不可见；保留审核记录。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: content_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 删除成功
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 内容不存在（41001）
+    get:
+      tags: [HometownPages]
+      summary: 内容详情（触发浏览去重计数）
+      description: |
+        浏览计数去重：同人同内容 24h 只计 1 次（hometown_views PRIMARY KEY + viewed_at 判定，位点超 48h 由 janitor 清理）。
+        作者非活跃、双方拉黑或不满足作者家乡可见性（public/friends/fellows_only/private）时返回 41001，点赞使用相同门禁。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: content_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 内容详情
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/HometownContent' }
+        '400':
+          description: 参数错误（40001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 40001, message: "参数错误", data: null, trace_id: "t-001" }
+        '404':
+          description: 内容不存在或已下架（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "内容不存在或已下架", data: null, trace_id: "t-001" }
+  /hometown-contents/{content_id}/comments:
+    parameters:
+      - { name: content_id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [HometownPages]
+      summary: 家乡文章评论分页
+      description: 文章可见性门禁与详情一致。按评论 ID 倒序，每页 20 条；过滤非活跃及与当前读者拉黑的评论者。返回 items、total_count、next_cursor，每条包含 id、content、from_user、created_at、can_delete。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: integer, minimum: 1 } }
+      responses:
+        '200':
+          description: 可见评论分页，末页 next_cursor 为 null
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '404': { description: 文章不可见或已删除 }
+    post:
+      tags: [HometownPages]
+      summary: 发表家乡文章评论
+      description: 支持 Idempotency-Key；每人每日最多 100 条，联系方式拦截与文章一致。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, minLength: 1, maxLength: 500 }
+      responses:
+        '200':
+          description: 返回 comment_id
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '404': { description: 文章不可见或已删除 }
+  /hometown-contents/{content_id}/comments/{comment_id}:
+    delete:
+      tags: [HometownPages]
+      summary: 评论者或文章作者删除评论
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: content_id, in: path, required: true, schema: { type: integer } }
+        - { name: comment_id, in: path, required: true, schema: { type: integer } }
+      responses:
+        '200': { description: 删除成功，重复操作幂等 }
+        '403': { description: 无删除权限 }
+        '404': { description: 文章不可见或评论不存在 }
+  /hometown-contents/{content_id}/gifts:
+    parameters:
+      - { name: content_id, in: path, required: true, schema: { type: integer } }
+    get:
+      tags: [HometownPages]
+      summary: 家乡文章打赏汇总
+      description: 返回 total_count（人次）、total_coins（觅豆）和最近 50 条 items。被拉黑或停用用户的身份不下发。文章可见性门禁与详情一致。
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 打赏汇总
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+    post:
+      tags: [HometownPages]
+      summary: 使用觅豆打赏家乡文章作者
+      description: 支持 Idempotency-Key；面额 1/5/10/52/100，禁止自赏与透支。与动态打赏共用每日次数上限。扣币、入账、订单、文章累计同事务提交；失败整体回滚。觅豆无充值、无提现。
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [coin_amount]
+              properties:
+                coin_amount: { type: integer, enum: [1, 5, 10, 52, 100] }
+      responses:
+        '200':
+          description: 返回 order_id、coin_amount、to_user_id、balance
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '400': { description: 面额错误、不能自赏或余额不足 }
+        '404': { description: 文章不可见或已删除 }
+        '429': { description: 今日打赏次数已达上限 }
+  /hometown-contents/{content_id}/like:
+    post:
+      tags: [HometownPages]
+      summary: 点赞（幂等）
+      description: 明细表 PRIMARY KEY 幂等，like_count 同步+1；重复点赞不重复计数。互动日频控 100 次/日（42901）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: content_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 点赞成功（含最新计数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          like_count: { type: integer }
+                          liked: { type: boolean, example: true }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+    delete:
+      tags: [HometownPages]
+      summary: 取消点赞（幂等）
+      description: 重复取消幂等，like_count 同步-1（下限 0）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: content_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 取消成功（含最新计数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          like_count: { type: integer }
+                          liked: { type: boolean, example: false }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+  /hometown-pages/{region_code}/follow:
+    post:
+      tags: [HometownPages]
+      summary: 关注家乡（幂等）
+      description: PRIMARY KEY 幂等，follower_count 同步+1，落审计 hometown_follow；首次关注自动建页。频控 100 次/日/人（42901）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: region_code, in: path, required: true, schema: { type: string }, example: "411623102" } ]
+      responses:
+        '200':
+          description: 关注成功（含最新关注数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          follower_count: { type: integer }
+                          is_following: { type: boolean, example: true }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+        '429':
+          description: 今日关注/取关操作已达上限（42901，100 次/日/人）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 42901, message: "今日关注/取关操作已达上限", data: { captcha_required: true }, trace_id: "t-001" }
+    delete:
+      tags: [HometownPages]
+      summary: 取消关注家乡（幂等）
+      description: 重复取关幂等，follower_count 同步-1（下限 0），落审计 hometown_unfollow。与关注共用频控 100 次/日/人（42901）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: region_code, in: path, required: true, schema: { type: string }, example: "411623102" } ]
+      responses:
+        '200':
+          description: 取消成功（含最新关注数）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          follower_count: { type: integer }
+                          is_following: { type: boolean, example: false }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+        '429':
+          description: 今日关注/取关操作已达上限（42901，100 次/日/人）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 42901, message: "今日关注/取关操作已达上限", data: { captcha_required: true }, trace_id: "t-001" }
+  /public/hometown-pages/{region_code}:
+    get:
+      tags: [HometownPages]
+      summary: 家乡页公开数据（免鉴权，H5 落地页用）
+      description: |
+        免鉴权。脱敏边界：items 仅含标题/分类/首图/浏览数/作者掩码昵称/时间——不含 body 全文、
+        不含作者 id（不含 UserBrief 任何字段）；昵称按 maskName 掩码（与召集令同规则）。
+        作者口径收紧：仅作者家乡可见性（user_hometowns.visibility 与 privacy_settings.hometown_visibility）
+        双入口均 public 的内容入选；页面记录未创建时返回缺省计数（公共读路径不写库）。
+        按 IP 低频限 60 次/小时，超限 42901（data=null，不走滑块流程）。
+      parameters: [ { name: region_code, in: path, required: true, schema: { type: string }, example: "411623102" } ]
+      responses:
+        '200':
+          description: 公开落地页数据（最新 10 条）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/HometownPublicPage' }
+        '404':
+          description: 资源不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 41001, message: "资源不存在", data: null, trace_id: "t-001" }
+        '429':
+          description: 访问过于频繁（42901，60 次/小时/IP）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+              example: { code: 42901, message: "访问过于频繁，请稍后再试", data: null, trace_id: "t-001" }
+
+  # ============ Groups ============
+  # V3.1 泛化群模型（normal/class/hometown/official，手动拉人/二维码入群），规划态；
+  # 与已实现的 ClassGroups 段（/class-groups/*，按班级单元教育经历自动聚班、一单元一群）相互独立，
+  # 二者数据模型不共享（Group.group_id vs ClassGroup.conv_id），客户端按 tag 区分。
+  /groups:
+    post:
+      tags: [Groups]
+      summary: 创建群（普通/班级/同乡）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [group_type, name, member_ids]
+              properties:
+                group_type: { type: string, enum: [normal, class, hometown] }
+                name: { type: string, maxLength: 32 }
+                member_ids: { type: array, items: { type: integer, format: int64 }, description: ≤40 直接拉入，超出需对方同意 }
+                education_id: { type: integer, format: int64, description: 班级群绑定经历 }
+                region_code: { type: string, description: 同乡群绑定地区 }
+      responses:
+        '200':
+          description: 建群成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          group_id: { type: integer, format: int64 }
+                          conversation_id: { type: integer, format: int64 }
+    get:
+      tags: [Groups]
+      summary: 我的群列表 + 推荐群
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 群组列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          mine: { type: array, items: { $ref: '#/components/schemas/Group' } }
+                          recommended: { type: array, items: { $ref: '#/components/schemas/Group' } }
+  /groups/{group_id}/members:
+    post:
+      tags: [Groups]
+      summary: 拉人入群
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: group_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                member_ids: { type: array, items: { type: integer, format: int64 } }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    get:
+      tags: [Groups]
+      summary: 群成员列表（班级群返回点名册视图，姓名按渐显矩阵）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: group_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 成员分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/CursorPage_UserBrief' }
+  /groups/{group_id}/qrcode:
+    post:
+      tags: [Groups]
+      summary: 生成群二维码（7 天有效）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: group_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 二维码图地址
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          qrcode_url: { type: string }
+                          expire_at: { type: string, format: date-time }
+
+  # ============ Moments ============
+  /moments:
+    post:
+      tags: [Moments]
+      summary: 发布动态（含文章卡片同步）
+      description: 可见范围六档；发布后可见范围不可改
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content_type, visibility]
+              properties:
+                content_type: { type: string, enum: [text, image, article, video, article_card], description: 当前实现支持 text / image / article；video / article_card 为 V1.x 规划态（提交将被 40001 拒绝，article_card 随文章模块开放） }
+                content: { type: string, maxLength: 20000, description: text/image 上限 2000 字；article 标题和正文合计上限 20000 字，首行可使用一级标题 }
+                media_ids: { type: array, maxItems: 9, items: { type: string }, description: 元素为 /misc/upload 返回的 url（/media/ 前缀，jpg/jpeg/png/webp）；content_type=image 时至少 1 个且 content 可为空 }
+                article_id: { type: integer, format: int64, description: content_type=article_card 时必填（V1.x 规划态） }
+                visibility: { $ref: '#/components/schemas/MomentVisibility' }
+                visible_tag_ids: { type: array, items: { type: integer }, description: 部分可见 }
+                excluded_user_ids: { type: array, items: { type: integer, format: int64 } }
+                location_poi: { type: string }
+                mention_user_ids: { type: array, maxItems: 10, items: { type: integer, format: int64 } }
+      responses:
+        '200':
+          description: 发布成功，返回完整 Moment 对象
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Moment' }
+        '450': { $ref: '#/components/responses/ContentBlocked' }
+  /moments/feed:
+    get:
+      tags: [Moments]
+      summary: 朋友圈时间线（纯时间倒序，无算法）
+      description: 仅含「自己 + 好友」的动态；陌生人公开动态（stranger_moments_10）不进主时间线，仅在 /users/{user_id}/moments 相册页生效
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string } }
+        - { name: visibility, in: query, schema: { type: string, enum: [classmates, fellows] }, description: 可选；同学圈/老乡圈聚合：按同窗/同乡关系聚合其 classmates/public（或 fellows/public）动态 }
+      responses:
+        '200':
+          description: 动态分页（文章卡片为压缩规格，不含全文）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Moment' }
+                          next_cursor: { type: string, nullable: true }
+  /moments/interactions/unread:
+    get:
+      tags: [Moments]
+      summary: 互动未读提示（我的动态是否有新点赞/评论，红点轮询用）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: since, in: query, schema: { type: integer, format: int64, default: 0 }, description: epoch 毫秒；仅统计该时间之后他人产生的互动 } ]
+      responses:
+        '200':
+          description: 是否存在新互动
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          has_new: { type: boolean }
+  /moments/{moment_id}:
+    get:
+      tags: [Moments]
+      summary: 动态详情
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 详情（互动仅共同好友可见，由服务端过滤）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/MomentDetail' }
+    delete:
+      tags: [Moments]
+      summary: 删除动态
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /moments/{moment_id}/comments:
+    post:
+      tags: [Moments]
+      summary: 评论/回复
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 500 }
+                reply_to_user_id: { type: integer, format: int64 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /moments/{moment_id}/likes:
+    post:
+      tags: [Moments]
+      summary: 点赞
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    delete:
+      tags: [Moments]
+      summary: 取消点赞
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /users/{user_id}/moments:
+    get:
+      tags: [Moments]
+      summary: 某用户的朋友圈相册页（陌生人范围由隐私设置控制）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 动态分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Moment' }
+                          next_cursor: { type: string, nullable: true }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+
+  # ============ Articles ============
+  /articles:
+    post:
+      tags: [Articles]
+      summary: 创建文章（草稿）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [title, content]
+              properties:
+                title: { type: string, maxLength: 64 }
+                content: { type: string, description: 富文本 JSON，≤5 万字 }
+                cover_media_id: { type: string }
+                column_id: { type: integer, format: int64 }
+                visibility: { $ref: '#/components/schemas/MomentVisibility' }
+      responses:
+        '200':
+          description: 草稿已建
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties: { article_id: { type: integer, format: int64 } }
+  /articles/{article_id}:
+    put:
+      tags: [Articles]
+      summary: 更新文章（发布 30 天内可改，留修改记录）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: article_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ArticleInput' }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+    get:
+      tags: [Articles]
+      summary: 阅读文章（详情页）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: article_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 全文 + 互动数据（可见性引擎判定）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Article' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+  /articles/{article_id}/publish:
+    post:
+      tags: [Articles]
+      summary: 发布文章（可选同步朋友圈卡片）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: article_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                sync_feed: { type: boolean, default: true, description: 生成固定规格文章卡片进朋友圈 }
+      responses:
+        '200':
+          description: 已发布；同作者 24h 内 >2 张卡片时 sync_feed 静默忽略（仅主页可见）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          moment_id: { type: integer, format: int64, nullable: true }
+  /users/{user_id}/articles:
+    get:
+      tags: [Articles]
+      summary: 某用户的文章列表（个人主页「文章」Tab）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: user_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: column_id, in: query, schema: { type: integer, format: int64 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 文章分页（卡片规格）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/ArticleBrief' }
+                          next_cursor: { type: string, nullable: true }
+  /articles/{article_id}/comments:
+    post:
+      tags: [Articles]
+      summary: 文章评论（与朋友圈卡片共用评论池）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: article_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, maxLength: 500 }
+                reply_to_user_id: { type: integer, format: int64 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /articles/{article_id}/likes:
+    post:
+      tags: [Articles]
+      summary: 文章点赞
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: article_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ Privacy ============
+  /privacy/settings:
+    get:
+      tags: [Privacy]
+      summary: 获取全部隐私设置
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 隐私设置全量
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PrivacySettings' }
+    put:
+      tags: [Privacy]
+      summary: 更新隐私设置（收窄 5 分钟内全端生效）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PrivacySettings' }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /privacy/data-export:
+    post:
+      tags: [Privacy]
+      summary: 个人信息导出（个保法可携带权，同步返回全量数据 JSON）
+      description: |
+        同步返回语义：响应 data 即本人全量数据 JSON 包（exported_at/profile/privacy_settings/
+        hometowns/educations/friends），无异步任务。频控 1 次/小时（超限 42901）；全程记审计
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 同步导出成功，data 为全量数据包
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          exported_at: { type: string, format: date-time }
+                          profile: { type: object, description: 本人资料（dimi_no/phone/nickname/real_name/gender/birth_year/signature/credit_score/created_at） }
+                          privacy_settings: { $ref: '#/components/schemas/PrivacySettings' }
+                          hometowns: { type: array, items: { type: object }, description: 含 type/region_code/visibility/path（名称链） }
+                          educations: { type: array, items: { type: object } }
+                          friends: { type: array, items: { type: object }, description: 含 dimi_no/remark_name/tags/created_at }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ============ OAuth 开放平台 ============
+  /oauth/authorize:
+    get:
+      tags: [OAuth]
+      summary: 授权确认（Authorization Code + PKCE）
+      parameters:
+        - { name: client_id, in: query, required: true, schema: { type: string } }
+        - { name: redirect_uri, in: query, required: true, schema: { type: string } }
+        - { name: response_type, in: query, required: true, schema: { type: string, enum: [code] } }
+        - { name: scope, in: query, required: true, schema: { type: string, example: "basic profile" } }
+        - { name: state, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge, in: query, required: true, schema: { type: string } }
+        - { name: code_challenge_method, in: query, schema: { type: string, enum: [S256] } }
+      responses:
+        '302':
+          description: 用户确认后重定向回 redirect_uri 并携带 code 与 state
+  /oauth/token:
+    post:
+      tags: [OAuth]
+      summary: 授权码/刷新令牌换 access_token
+      requestBody:
+        required: true
+        content:
+          application/x-www-form-urlencoded:
+            schema:
+              type: object
+              required: [grant_type, client_id]
+              properties:
+                grant_type: { type: string, enum: [authorization_code, refresh_token] }
+                client_id: { type: string }
+                client_secret: { type: string }
+                code: { type: string }
+                redirect_uri: { type: string }
+                code_verifier: { type: string }
+                refresh_token: { type: string }
+      responses:
+        '200':
+          description: token 响应（含 OIDC id_token，JWT）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  access_token: { type: string }
+                  refresh_token: { type: string }
+                  id_token: { type: string, description: OIDC JWT }
+                  token_type: { type: string, example: Bearer }
+                  expires_in: { type: integer, example: 7200 }
+                  scope: { type: string }
+  /oauth/userinfo:
+    get:
+      tags: [OAuth]
+      summary: 获取授权用户信息（按 scope 返回）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 用户信息
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  openid: { type: string }
+                  unionid: { type: string }
+                  nickname: { type: string }
+                  avatar_url: { type: string }
+                  gender: { type: integer }
+                  birth_year: { type: integer, description: scope=profile }
+                  hometown_city: { type: string, description: scope=profile }
+                  educations: { type: array, items: { $ref: '#/components/schemas/Education' }, description: scope=education，需用户单独勾选 }
+  /oauth/revoke:
+    post:
+      tags: [OAuth]
+      summary: 撤销授权（用户侧或第三方侧）
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties: { token: { type: string } }
+      responses: { '200': { description: 已撤销 } }
+  /oauth/jwks:
+    get:
+      tags: [OAuth]
+      summary: JWKS 公钥集（验签 ID Token）
+      responses:
+        '200': { description: JWKS JSON }
+  /oauth/authorizations:
+    get:
+      tags: [OAuth]
+      summary: 我授权过的第三方应用（设置→隐私→授权管理）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 授权列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                client_id: { type: string }
+                                app_name: { type: string }
+                                logo_url: { type: string }
+                                scope_granted: { type: string }
+                                created_at: { type: string, format: date-time }
+
+  # ============ Notifications ============
+  /notifications:
+    get:
+      tags: [Notifications]
+      summary: 通知中心（互动/系统分类）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [interaction, system, recommend], default: interaction } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 通知分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                id: { type: integer, format: int64 }
+                                type: { type: string }
+                                actor: { $ref: '#/components/schemas/UserBrief' }
+                                summary: { type: string }
+                                ref_id: { type: integer, format: int64 }
+                                is_read: { type: boolean }
+                                created_at: { type: string, format: date-time }
+                          next_cursor: { type: string, nullable: true }
+  /notifications/settings:
+    put:
+      tags: [Notifications]
+      summary: 通知设置（分项开关 + 免打扰时段）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                push_enabled: { type: boolean }
+                show_detail: { type: boolean }
+                sound: { type: boolean }
+                vibrate: { type: boolean }
+                moment_badge: { type: boolean }
+                recommend_push: { type: boolean }
+                classmate_arrived_push: { type: boolean }
+                quiet_hours: { type: string, example: "23:00-07:00" }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ Misc ============
+  /misc/upload:
+    post:
+      tags: [Misc]
+      summary: 媒体上传（头像/图片/语音，base64 先传后引用，返回 media_id 与 url）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [scene, content_base64, ext]
+              properties:
+                scene:
+                  type: string
+                  enum: [avatar, chat_image, chat_voice, chat_video, evidence, feedback, moment]
+                  description: chat_voice 为语音消息（最长 60 秒）；chat_video 为视频消息（拍摄/相册，最长 30 秒）；其余 scene 为图片
+                content_base64: { type: string, description: 文件内容 base64；解码后图片/语音 ≤2MB，chat_video ≤20MB }
+                ext:
+                  type: string
+                  description: 扩展名白名单按 scene 区分——图片 scene：jpg/jpeg/png/webp；chat_voice：m4a/aac；chat_video：mp4/mov
+      responses:
+        '200':
+          description: 上传成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          media_id: { type: string }
+                          url:
+                            type: string
+                            description: 本地存储为 /media/<file> 相对路径；OSS 存储（DIMI_STORAGE_PROVIDER=oss）为绝对公网 URL，客户端须原样使用
+  /misc/report:
+    post:
+      tags: [Misc]
+      summary: 举报（用户/动态/文章/消息/群）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [target_type, target_id, reason]
+              properties:
+                target_type: { type: string, enum: [user, moment, article, message, group, hometown_content] }
+                target_id: { type: integer, format: int64 }
+                reason: { type: string, enum: [politics, porn, fraud, harassment, infringement, impersonation, other] }
+                detail: { type: string, maxLength: 500 }
+                evidence_media_ids: { type: array, items: { type: string }, description: 暂未消费：当前实现不落库不校验，仅作契约预留 }
+      responses:
+        '200':
+          description: 已受理（人工复核 SLA 24h）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          report_id: { type: integer, format: int64, description: 举报工单 ID }
+                          status: { type: string, enum: [pending], description: 初始为 pending }
+                          sla: { type: string, example: "24h" }
+                          sla_deadline: { type: string, format: date-time, description: 复核时限（受理时刻 +24h） }
+  /misc/appeal:
+    post:
+      tags: [Misc]
+      summary: 申诉（封号冻结/内容处置/冒名裁定）
+      description: 实现侧三类：freeze（账号冻结，SLA 24h）/ content（内容处置，SLA 72h）/ impersonation（冒名裁定，SLA 72h）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, content]
+              properties:
+                type: { type: string, enum: [freeze, content, impersonation], description: 冻结/内容/冒名 }
+                content: { type: string, maxLength: 500, description: 申诉陈述，必填且不超过 500 字 }
+      responses:
+        '200':
+          description: 申诉工单已建（冻结类 24h / 内容类 72h / 冒名类 72h）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          appeal_id: { type: integer, format: int64, description: 申诉工单 ID }
+                          status: { type: string, enum: [pending], description: 初始为 pending }
+                          sla: { type: string, example: "24h" }
+                          sla_deadline: { type: string, format: date-time }
+
+  /feedback:
+    post:
+      tags: [Misc]
+      summary: 意见反馈
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [content]
+              properties:
+                content: { type: string, description: 反馈内容，必填 }
+                contact: { type: string, description: 可选，联系方式（便于回访） }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /public/invites/{code}:
+    get:
+      tags: [Misc]
+      summary: 召集令公开落地页（H5 用，免鉴权）
+      description: |
+        返回班级单元名 + 已点亮头像墙 + 还差几人。头像墙为昵称 + 掩码名（公开场景强制掩码，
+        不走完整真名）+ 确定性配色，不含任何联系方式
+      security: []
+      parameters: [ { name: code, in: path, required: true, schema: { type: string }, description: 邀请码 } ]
+      responses:
+        '200':
+          description: 召集令落地页数据
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          code: { type: string }
+                          unit_name: { type: string, example: "城关镇第二小学 1996级 六年2班" }
+                          inviter:
+                            type: object
+                            nullable: true
+                            properties: { nickname: { type: string } }
+                          slogan: { type: string, example: 就差你了，点亮我们班的名字 }
+                          target: { type: integer, description: 目标人数（已注册 + 预占位） }
+                          lit: { type: integer, description: 已点亮人数（已注册） }
+                          avatars:
+                            type: array
+                            description: 头像墙（公开场景强制掩码名，不走完整真名）
+                            items:
+                              type: object
+                              properties:
+                                nickname: { type: string }
+                                masked_name: { type: string, example: "李*娟" }
+                                avatar_color: { type: string, example: "#7ba7bc", description: 确定性配色 }
+        '404':
+          description: 召集令不存在或已失效（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+
+  # ============ Wallet（觅豆钱包 / 红包 / 动态打赏） ============
+  # 红线（V3.1 A8）：P0 纯赠送体系——无充值、无提现、无现金价值，币来源仅任务赠送。
+  # 幂等：写接口全部走通用幂等层（Idempotency-Key）+ 流水唯一键双保险；
+  # 红包消息卡由服务端在发红包同事务内代发（client_msg_id=rp:{packet_id}），客户端不得自行拼卡。
+  /wallet:
+    get:
+      tags: [Wallet]
+      summary: 我的钱包（觅豆余额 + 任务面板）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 余额与任务列表（tasks 不含 comment 类；done 仅 day/once 周期任务有完成态，per_target 恒 false）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/WalletInfo' }
+  /wallet/transactions:
+    get:
+      tags: [Wallet]
+      summary: 觅豆流水（cursor 游标分页，倒序，每页固定 20 条）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: cursor, in: query, schema: { type: string }, description: 上一页末条流水 id，空=最新一页 }
+      responses:
+        '200':
+          description: 流水分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/CoinTransaction' }
+                          next_cursor: { type: string, nullable: true }
+  /wallet/checkin:
+    post:
+      tags: [Wallet]
+      summary: 每日打卡（每日活跃奖励 +5 觅豆）
+      description: 幂等：当日重复打卡返回 granted=false，不重复发放
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 打卡结果
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          granted: { type: boolean, description: 本次是否实际发放（当日已打卡为 false） }
+                          amount: { type: integer, example: 5 }
+                          balance: { type: integer, description: 打卡后余额 }
+  /red-packets:
+    post:
+      tags: [Wallet]
+      summary: 发红包（单聊/班级群）
+      description: |
+        单位均为觅豆。群红包 type 支持 luck（拼手气，个数 2–min(50, 群成员数)，总额 count×1–2000）/
+        normal（普通均分，总额须整除个数，单份 1–200）；私聊红包固定 normal 1 份（单份 1–200），仅好友可发。
+        频控：20 次/日/人（超限 42901）；班级群红包灰度门：该班级单元点亮注册数 ≥15 才开放（40301）。
+        24h 未领完剩余觅豆原路退回发出者币账户（惰性结算 + 定时扫描）。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [conv_id, type, total_amount, count]
+              properties:
+                conv_id: { type: integer, format: int64 }
+                type: { type: string, enum: [luck, normal], description: 拼手气/普通（私聊仅 normal 且 count=1） }
+                total_amount: { type: integer, description: 总额（觅豆，整数） }
+                count: { type: integer, description: 个数 }
+                greeting: { type: string, maxLength: 20, nullable: true, description: 祝福语，≤20 字 }
+      responses:
+        '200':
+          description: 红包已发出（红包消息卡已由服务端代发进会话）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/RedPacket'
+                          - type: object
+                            properties:
+                              balance: { type: integer, description: 扣款后余额 }
+                              msg_id: { type: integer, format: int64, description: 服务端代发的红包消息卡 msg_id }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /red-packets/{packet_id}:
+    get:
+      tags: [Wallet]
+      summary: 红包详情（含领取列表与我的领取记录）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: packet_id, in: path, required: true, schema: { type: string }, description: 红包 ID（形如 RP 开头串） } ]
+      responses:
+        '200':
+          description: 红包详情（claims 领取列表；my_claim 为我的领取记录，未领为 null）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/RedPacketDetail' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '404':
+          description: 红包不存在（41001）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+  /red-packets/{packet_id}/claim:
+    post:
+      tags: [Wallet]
+      summary: 领红包
+      description: |
+        拼手气按二倍均值法随机（保底剩余每份 ≥1 觅豆）；普通均分。已领完/已过期/重复领取返回 40001；
+        私聊红包发出者不能自己领；非会话成员 40301。最后一份领完时结算 is_best 手气最佳。
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: packet_id, in: path, required: true, schema: { type: string } } ]
+      responses:
+        '200':
+          description: 领取结果（packet 为含领取列表的最新红包详情）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          amount: { type: integer, description: 本次领到金额（觅豆） }
+                          balance: { type: integer, description: 领取后余额 }
+                          packet: { $ref: '#/components/schemas/RedPacketDetail' }
+  /moments/{moment_id}/gifts:
+    post:
+      tags: [Wallet]
+      summary: 打赏动态（纯心意，不产生现金收益）
+      description: |
+        固定面额 1/5/10/52/100 觅豆；不能给自己的动态打赏；须有权查看该动态（40301）。
+        频控：50 次/日/人（超限 42901）。打赏即转账：同一事务内扣本人、加作者，即时 confirmed。
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [coin_amount]
+              properties:
+                coin_amount: { type: integer, enum: [1, 5, 10, 52, 100], description: 打赏面额（觅豆） }
+      responses:
+        '200':
+          description: 打赏成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          order_id: { type: string, description: 打赏单号（G 开头串） }
+                          coin_amount: { type: integer }
+                          to_user_id: { type: integer, format: int64, description: 动态作者 }
+                          balance: { type: integer, description: 扣款后余额 }
+        '429': { $ref: '#/components/responses/RateLimited' }
+    get:
+      tags: [Wallet]
+      summary: 动态打赏榜（最近 50 笔）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: moment_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 打赏汇总与列表（须有权查看该动态，40301）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_count: { type: integer }
+                          total_coins: { type: integer }
+                          items:
+                            type: array
+                            maxItems: 50
+                            items:
+                              type: object
+                              properties:
+                                from_user: { $ref: '#/components/schemas/UserBrief' }
+                                coin_amount: { type: integer }
+                                created_at: { type: string, format: date-time }
+
+  # ============ Admin（内部运营通道） ============
+  # /admin-api/* 为内部通道免鉴权段：不走 bearerAuth 用户态鉴权，改用 X-Admin-Token 头；
+  # 未配置 ADMIN_TOKEN 环境变量时整段接口禁用（不注册路由）。
+  /admin-api/density/summary:
+    get:
+      tags: [Admin]
+      summary: 运营密度看板汇总（单元注册数 / 达标率 / 7 日留存）
+      description: 内部通道免鉴权段（bearerAuth 不适用），须携带 X-Admin-Token；达标定义=注册 ≥15 人且 7 留 ≥60%
+      security: []
+      parameters: [ { name: X-Admin-Token, in: header, required: true, schema: { type: string } } ]
+      responses:
+        '200':
+          description: 汇总指标
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          total_units: { type: integer }
+                          qualified_units: { type: integer }
+                          qualified_rate: { type: number }
+                          total_users: { type: integer }
+                          dau7_retention: { type: number, nullable: true }
+  /admin-api/density/units:
+    get:
+      tags: [Admin]
+      summary: 单元密度明细（班级/老乡单元注册数与留存）
+      description: 内部通道免鉴权段（bearerAuth 不适用），须携带 X-Admin-Token
+      security: []
+      parameters:
+        - { name: X-Admin-Token, in: header, required: true, schema: { type: string } }
+        - { name: level, in: query, schema: { type: string, enum: [class, town], default: class } }
+      responses:
+        '200':
+          description: 单元列表（data 为数组，元素含 unit_name/registered/target/retention_7d/qualified 等）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: array
+                        items:
+                          type: object
+                          properties:
+                            unit_name: { type: string }
+                            level: { type: string, enum: [class, town] }
+                            registered: { type: integer }
+                            target: { type: integer }
+                            retention_7d: { type: number, nullable: true }
+                            qualified: { type: boolean }
+
+  # ============ Verification（经历验证 V0–V3） ============
+  /users/me/educations/{education_id}/verification:
+    post:
+      tags: [Verification]
+      summary: 提交经历证据验证（V2）
+      description: |
+        上传毕业证/学生证/毕业照申请 V2 证据验证（OCR 核验校名+年份一致性，人审兜底）。
+        隐私红线：证件仅用于核验，不做人脸比对、不用于检索，核验完成后 30 天内删除源文件，
+        仅留存不含图像的核验记录用于审计（§3.1）。幂等：同一经历重复提交返回在审工单。
+        同窗互证升级 V1 由好友关系达到阈值（≥3 名同班 V1+ 好友）后自动触发，无需手动调用
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: education_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [type, evidence_media_id]
+              properties:
+                type: { type: string, enum: [diploma, student_card, class_photo], description: 毕业证/学生证/毕业照 }
+                evidence_media_id: { type: string, description: 先经 /misc/upload 上传 }
+      responses:
+        '200':
+          description: 验证工单已建（data 为证据工单）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/VerificationEvidence' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /users/me/verification:
+    get:
+      tags: [Verification]
+      summary: 我的各段经历验证状态总览
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 每段经历当前验证等级与在审工单
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items:
+                              type: object
+                              properties:
+                                education_id: { type: integer, format: int64 }
+                                school_name: { type: string }
+                                enroll_year: { type: integer }
+                                verification_level: { $ref: '#/components/schemas/VerificationLevel' }
+                                verified_at: { type: string, format: date-time, nullable: true }
+                                verification_source: { type: string, enum: [peer_review, document, org_roster], nullable: true }
+                                pending_evidence: { $ref: '#/components/schemas/VerificationEvidence' }
+  /verification/peer-confirm:
+    post:
+      tags: [Verification]
+      summary: 同窗互证确认/否认（V1 互证与冒名复核）
+      description: |
+        收到互证请求或冒名复核时，确认/否认"TA 确为该校该届该班同学"。
+        否认即触发冒名复核流程；冒名举报成立后果：信用分清零 + 设备封禁（§3.1）。
+        幂等：同一确认单重复提交返回当前状态
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [confirm_id, action]
+              properties:
+                confirm_id: { type: integer, format: int64, description: 互证/复核工单 ID }
+                action: { type: string, enum: [confirm, deny] }
+                scene: { type: string, enum: [peer_verify, impersonation_review], description: V1 互证/冒名复核 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ ClassPhotos（云班级毕业照） ============
+  /class-photos:
+    post:
+      tags: [ClassPhotos]
+      summary: 上传班级毕业照
+      description: |
+        合规红线（§6.3/A2）：默认仅本班 V1+ 已验证成员可见，上传者可扩大至同届；
+        永不公开、不进推荐 Feed、不进搜索结果；仅支持毕业 ≥3 年的历史照片（硬校验，
+        涉及当前在读未成年人的照片一律不入库）；本模块独立频控 ≤20 次/小时并全量审计（§14.2）。
+        member_declaration 为必填承诺（A2.4）：上传者声明"我是本班成员，有权分享此照片"。
+        人脸信息存储数量达 10 万人之日起 30 个工作日内完成网信部门备案（A2.2）。
+        幂等：重复提交按 Idempotency-Key 去重
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [school_id, enroll_year, class_norm, original_url, member_declaration]
+              properties:
+                school_id: { type: integer, format: int64 }
+                enroll_year: { type: integer, example: 1996 }
+                class_norm: { type: string, example: "6-2", description: 归一化班级 }
+                original_url: { type: string, description: 原图地址（先经 /misc/upload 上传） }
+                member_declaration: { type: boolean, description: 上传者承诺"我是本班成员，有权分享此照片"（A2.4 必填，须为 true） }
+      responses:
+        '200':
+          description: 上传成功，AI 修复/人脸分割异步处理（人脸检测仅用于分割网格，不做识别）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/ClassPhoto' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /class-photos/{photo_id}:
+    get:
+      tags: [ClassPhotos]
+      summary: 查看毕业照（人脸网格 + 标注列表）
+      description: |
+        可见性经可见性决策引擎判定：默认仅本班 V1+ 成员可见。
+        未认领人脸在返回图中默认轻度模糊标记，认领后清晰显示（本人可选设置）。
+        独立频控 ≤20 次/小时并全量审计
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: photo_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 照片详情（含人脸分割网格与标注）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/ClassPhoto'
+                          - type: object
+                            properties:
+                              annotations:
+                                type: array
+                                items: { $ref: '#/components/schemas/PhotoAnnotation' }
+        '403': { $ref: '#/components/responses/PrivacyBlocked' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /class-photos/{photo_id}/annotations:
+    post:
+      tags: [ClassPhotos]
+      summary: 标注人脸网格姓名（"第3排左2：王丽"）
+      description: |
+        系统校验标注姓名+班级匹配该班已注册/预占位名录，触发对已注册同班成员的通知
+        与预占位名字的召集令定向邀请。幂等：同一网格同一标注人重复提交覆盖更新
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: photo_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grid_index, annotated_name]
+              properties:
+                grid_index: { type: integer, description: 人脸网格序号 }
+                annotated_name: { type: string, maxLength: 32 }
+      responses:
+        '200':
+          description: 标注成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PhotoAnnotation' }
+  /class-photos/{photo_id}/annotations/{annotation_id}/correct:
+    post:
+      tags: [ClassPhotos]
+      summary: 纠正/移除我的名字（被标注人一键纠错）
+      description: |
+        标注姓名的名誉权边界（A2.4）：被标注人可一键"纠正/移除我的名字"；
+        同一标注被 2 人以上纠错时自动隐藏并通知上传者。幂等：同一用户重复纠错不叠加计数
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: photo_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: annotation_id, in: path, required: true, schema: { type: integer, format: int64 } }
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                action: { type: string, enum: [correct, remove], default: remove, description: 纠正为正确姓名/直接移除 }
+                correct_name: { type: string, maxLength: 32, description: action=correct 时填写 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /class-photos/{photo_id}/claims:
+    post:
+      tags: [ClassPhotos]
+      summary: 本人认领（"这是我"）
+      description: |
+        认领三条路径平权（A2.1，办法第十条）：method=face 人脸比对（自愿、需单独同意、
+        非唯一验证方式，UI 三条路径平权展示、不得默认高亮人脸路径）；method=peer 同窗互证认领
+        （≥2 名已认领/已验证同班成员确认）；method=document 凭证认领（上传毕业证等材料人工核验，
+        复用 V2 证据通道）。人脸特征即用即删：核验完成即删特征，仅留存"认领成功"结果记录，
+        不存特征数据（A2.2）。比对通过得 V2 级验证。幂等：同一网格重复认领返回已有认领记录
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: photo_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [grid_index, method]
+              properties:
+                grid_index: { type: integer }
+                method: { type: string, enum: [face, peer, document], description: 人脸比对/同窗互证/凭证核验（三路径平权） }
+                face_consent_token: { type: string, description: method=face 必填，单独同意凭证；比对完成特征即删 }
+                evidence_media_id: { type: string, description: method=document 必填 }
+      responses:
+        '200':
+          description: 认领结果（peer/document 为受理中，face 为即时核验结果）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/PhotoClaim' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+  /class-photos/{photo_id}/takedown:
+    post:
+      tags: [ClassPhotos]
+      summary: 撤下申请（免注册免登录 H5 通道）
+      description: |
+        被拍摄者救济权（A2.4）：照片中任何人可无需注册、无需证明身份关系，
+        通过照片页 H5 入口申请对自己的人脸全程模糊（传 grid_index）或撤下整张照片
+        （省略 grid_index），无需说明理由，处理 SLA 24h。本接口免鉴权，频控按 IP+设备指纹
+      security: []
+      parameters: [ { name: photo_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                grid_index: { type: integer, description: 可选；省略=撤下整张照片，填写=仅模糊该人脸 }
+                contact: { type: string, description: 可选，接收处理回执的联系方式（手机号/邮箱） }
+      responses:
+        '200':
+          description: 申请已受理（24h 内处理，contact 可收回执）
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ApiResponse' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ============ Events（聚会） ============
+  /events:
+    post:
+      tags: [Events]
+      summary: 创建聚会
+      description: |
+        班级群/同乡群/普通群成员均可发起。AA 仅记账不动钱，平台不碰支付、不经手资金（A6/A8）；
+        活动相册自动聚合沉淀为班级资产，反哺云班级（§8.2）。会员发起人数上限更高（§11.2）。
+        幂等：重复提交按 Idempotency-Key 去重
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [unit_type, unit_id, title, event_time, location_poi]
+              properties:
+                unit_type: { type: string, enum: [class, hometown, group] }
+                unit_id: { type: integer, format: int64, description: 班级经历/同乡地区/群的 ID }
+                title: { type: string, maxLength: 32, example: 96届六年2班毕业28周年聚会 }
+                event_time: { type: string, format: date-time }
+                location_poi: { type: string }
+                signup_deadline: { type: string, format: date-time }
+      responses:
+        '200':
+          description: 创建成功
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Event' }
+  /events/mine:
+    get:
+      tags: [Events]
+      summary: 我参与/发起的聚会（cursor 分页）
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: role, in: query, schema: { type: string, enum: [all, created, joined], default: all } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: 聚会分页
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Event' }
+                          next_cursor: { type: string, nullable: true }
+  /events/{event_id}:
+    get:
+      tags: [Events]
+      summary: 聚会详情（含报名名单与 AA 记账汇总）
+      description: AA 记账仅为账目公示，平台不经手资金；报名名单姓名按渐显矩阵处理
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: event_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 详情 + 报名名单 + AA 汇总
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        allOf:
+                          - $ref: '#/components/schemas/Event'
+                          - type: object
+                            properties:
+                              signups:
+                                type: array
+                                items: { $ref: '#/components/schemas/EventSignup' }
+                              aa_summary:
+                                type: object
+                                description: AA 记账汇总（只记账不动钱）
+                                properties:
+                                  total_amount: { type: number, example: 2400 }
+                                  per_capita: { type: number, example: 120 }
+                                  paid_count: { type: integer, description: 发起人线下标记"已付"人数 }
+  /events/{event_id}/signup:
+    post:
+      tags: [Events]
+      summary: 聚会报名（报名/请假/候补）
+      description: 幂等：重复提交以最新 status 为准
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [status]
+              properties:
+                status: { type: string, enum: [signup, leave, waitlist], description: 报名/请假/候补 }
+      responses:
+        '200':
+          description: 报名状态已更新
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/EventSignup' }
+  /events/{event_id}/albums:
+    post:
+      tags: [Events]
+      summary: 上传活动照片（可关联毕业照，沉淀班级资产）
+      description: 活动相册自动聚合为班级数字资产；linked_class_photo_id 可挂接到云班级毕业照
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: event_id, in: path, required: true, schema: { type: integer, format: int64 } }
+        - { name: Idempotency-Key, in: header, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [photo_urls]
+              properties:
+                photo_urls: { type: array, maxItems: 9, items: { type: string } }
+                linked_class_photo_id: { type: integer, format: int64, nullable: true, description: 关联的云班级毕业照 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ Calendar（场景日历） ============
+  /calendar/mine:
+    get:
+      tags: [Calendar]
+      summary: 我的场景日历
+      description: |
+        四层日历：life 人生历（入学/毕业 N 周年）/ relationship 关系历（与好友重建联系 N 周年）/
+        system 系统历（开学日/教师节/毕业季）/ regional 地域历（春节返乡/地方节庆）。
+        推送经通知决策表过滤：人生历/关系历每月合计 ≤4 条 Push
+      security: [{ bearerAuth: [] }]
+      parameters:
+        - { name: type, in: query, schema: { type: string, enum: [life, relationship, system, regional] }, description: 人生历/关系历/系统历/地域历 }
+        - { name: month, in: query, schema: { type: string, example: "2025-09" } }
+      responses:
+        '200':
+          description: 日历事件列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/CalendarEvent' }
+  /calendar/settings:
+    put:
+      tags: [Calendar]
+      summary: 日历分层推送单项开关
+      description: 全部日历层可单项关闭；人生历/关系历推送每月合计 ≤4 条 Push（§8.3 克制边界）
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                life_push: { type: boolean, default: true, description: 人生历推送 }
+                relationship_push: { type: boolean, default: true, description: 关系历推送 }
+                system_push: { type: boolean, default: true, description: 系统历推送 }
+                regional_push: { type: boolean, default: true, description: 地域历推送 }
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+
+  # ============ Assist（代际协助） ============
+  /assist/relations:
+    post:
+      tags: [Assist]
+      summary: 发起协助申请（子女侧）
+      description: |
+        子女为父母代填经历、代管隐私的授权链路第一步。协助边界：协助者可填写/修改经历、
+        管理隐私设置；不能读消息、不能看朋友圈、不能代为聊天——协助的是"数字能力"，
+        不是"社交替身"。敏感操作（加好友通过、联系方式交换）仍需被协助人本人手机确认；
+        所有协助行为写审计日志且被协助端留痕可见（§10.3）。幂等：重复申请返回已有关系
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [assisted_user_id, scope]
+              properties:
+                assisted_user_id: { type: integer, format: int64, description: 被协助人（父母） }
+                scope:
+                  type: array
+                  items: { type: string, enum: [edit_education, manage_privacy] }
+                  description: 可代办项白名单
+      responses:
+        '200':
+          description: 申请已发出，待父母端确认
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AssistRelation' }
+  /assist/relations/{relation_id}/confirm:
+    post:
+      tags: [Assist]
+      summary: 父母端确认协助关系（一键同意，语音播报场景）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: relation_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses:
+        '200':
+          description: 协助关系已生效
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/AssistRelation' }
+  /assist/relations/{relation_id}:
+    delete:
+      tags: [Assist]
+      summary: 解除协助关系（任一方单方随时解除，即时生效）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: relation_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /assist/relations/mine:
+    get:
+      tags: [Assist]
+      summary: 我协助的/协助我的关系列表
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 双向协助关系
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          assisting: { type: array, items: { $ref: '#/components/schemas/AssistRelation' }, description: 我协助的 }
+                          assisted_by: { type: array, items: { $ref: '#/components/schemas/AssistRelation' }, description: 协助我的 }
+
+  # ============ Subscription（会员 DIMI+） ============
+  /subscriptions/mine:
+    get:
+      tags: [Subscription]
+      summary: 我的会员状态
+      description: |
+        会员总纲（§11.1）：只卖"自己能力的增强"，不卖"他人信息的访问权"——
+        会员不获得任何检索豁免、不突破任何隐私设置、不获得推荐加权，明确不做隐身访问
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 当前会员状态
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data: { $ref: '#/components/schemas/Subscription' }
+  /subscriptions/order:
+    post:
+      tags: [Subscription]
+      summary: 会员/单次服务下单
+      description: 幂等：同一 Idempotency-Key 不重复扣款；未成年人账号屏蔽一切营销触达（A3）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: Idempotency-Key, in: header, schema: { type: string } } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan: { type: string, enum: [monthly, yearly, one_time_restore], description: 连续包月/包年/单次照片修复 }
+                channel: { type: string, enum: [alipay, wechat_pay, app_store, group_buy], description: 支付渠道（group_buy=组织号团购） }
+      responses:
+        '200':
+          description: 订单已建，返回支付参数
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          order_id: { type: string }
+                          pay_params: { type: object, description: 渠道支付参数 }
+  /subscriptions/entitlements:
+    get:
+      tags: [Subscription]
+      summary: 我的权益额度
+      description: |
+        权益全部为自身能力增强：消息漫游时长（1 年→长期）、谁看过我（7 天计数→30 天明细）、
+        检索结果深度（200→500 条，防爬频控不变）、照片修复（3 张/月→不限量）、聚会发起上限等。
+        不含任何他人信息访问权（§11.2）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 权益额度列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/Entitlement' }
+
+  # ============ AI（小觅助理） ============
+  /ai/assistant/parse:
+    post:
+      tags: [AI]
+      summary: 小觅自然语言检索解析
+      description: |
+        输入自然语言/语音，输出结构化检索参数。边界声明（§9.1/A5）：AI 仅是检索器的
+        前端语法翻译器，不新增任何检索权限——锚点强制、检索频控、真名渐显矩阵全部原样生效；
+        客户端拿到参数后调用原有 /discover/classmates 等检索接口，AI 不直接返回用户数据。
+        AI 不生成内容进入 Feed 与聊天（不代写朋友圈、不代聊）。频控与检索共用配额
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                text: { type: string, maxLength: 200, example: 帮我找找九六年城关镇二小六年级二班的李娟 }
+                voice_url: { type: string, description: 语音输入（二选一） }
+      responses:
+        '200':
+          description: 结构化检索参数 + 置信度
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          scene: { type: string, enum: [classmate, fellow, unknown] }
+                          school_name: { type: string, nullable: true }
+                          enroll_year: { type: integer, nullable: true }
+                          class_norm: { type: string, nullable: true }
+                          name: { type: string, nullable: true }
+                          hometown_region: { type: string, nullable: true }
+                          confidence: { type: number, example: 0.92, description: 低于阈值时客户端需向用户复述确认 }
+        '429': { $ref: '#/components/responses/RateLimited' }
+
+  # ============ Safety（算法与安全合规） ============
+  /recommendation/tags:
+    get:
+      tags: [Safety]
+      summary: 我的推荐标签列表（A4 算法合规）
+      description: 用户可查看系统给自己打的推荐标签（如"90 年代小学生""豫籍在杭"），算法推荐管理规定第 15 条
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 标签列表
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          items:
+                            type: array
+                            items: { $ref: '#/components/schemas/RecommendTag' }
+  /recommendation/tags/{tag_id}:
+    delete:
+      tags: [Safety]
+      summary: 删除单个推荐标签（删除后不再用于推荐）
+      security: [{ bearerAuth: [] }]
+      parameters: [ { name: tag_id, in: path, required: true, schema: { type: integer, format: int64 } } ]
+      responses: { '200': { $ref: '#/components/responses/OkEmpty' } }
+  /recommendation/explanation:
+    get:
+      tags: [Safety]
+      summary: 推荐算法基本原理公示（算法备案要求）
+      description: 公示推荐算法基本原理说明内容；推荐系统上线后 10 个工作日内完成算法备案，变更及时变更备案（A4）
+      security: [{ bearerAuth: [] }]
+      responses:
+        '200':
+          description: 公示文案（Markdown）
+          content:
+            application/json:
+              schema:
+                allOf:
+                  - $ref: '#/components/schemas/ApiResponse'
+                  - type: object
+                    properties:
+                      data:
+                        type: object
+                        properties:
+                          content: { type: string, description: 算法基本原理说明正文 }
+                          updated_at: { type: string, format: date-time }
+
+# ============================================================
+components:
+  securitySchemes:
+    bearerAuth: { type: http, scheme: bearer, bearerFormat: JWT }
+
+  responses:
+    OkEmpty:
+      description: 成功
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/ApiResponse' }
+    RateLimited:
+      description: 触发频控（42901），需滑块/人机验证
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ApiResponse'
+              - example: { code: 42901, message: "操作过于频繁，请完成验证", data: { captcha_required: true }, trace_id: "t-001" }
+    PrivacyBlocked:
+      description: 隐私限制（40301）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ApiResponse'
+              - example: { code: 40301, message: "对方设置了隐私权限", data: null, trace_id: "t-002" }
+    ContentBlocked:
+      description: 内容安全拦截（45001）
+      content:
+        application/json:
+          schema:
+            allOf:
+              - $ref: '#/components/schemas/ApiResponse'
+              - example: { code: 45001, message: "为保护双方安全，联系方式请在成为好友后交换", data: null, trace_id: "t-003" }
+
+  schemas:
+    ApiResponse:
+      type: object
+      properties:
+        code: { type: integer, example: 0 }
+        message: { type: string, example: ok }
+        data: { nullable: true }
+        trace_id: { type: string }
+    AuthToken:
+      type: object
+      properties:
+        access_token: { type: string }
+        refresh_token: { type: string }
+        expires_in: { type: integer, example: 7200 }
+        user: { $ref: '#/components/schemas/UserSelf' }
+    DeviceInfo:
+      type: object
+      description: 登录设备项（对应一条活跃 token 会话）
+      properties:
+        device_id: { type: integer, format: int64, description: 设备（会话）ID，用于下线指定设备 }
+        device_info: { type: string, example: "iPhone 15 Pro / iOS 18", description: 登录时上报的 device_info，缺省为 User-Agent 或"未知设备" }
+        current: { type: boolean, description: 是否当前会话 }
+        login_at: { type: string, format: date-time, description: 该设备登录时间 }
+    Stage:
+      type: string
+      enum: [PRIMARY, MIDDLE, HIGH, VOCATIONAL, UNIVERSITY, POSTGRADUATE]
+      description: 小学/初中/高中/中专职高/大学大专/研究生
+    Visibility:
+      type: string
+      enum: [public, friends, fellows_only, private]
+      description: 公开/仅好友/仅同窗同乡/私密
+    MomentVisibility:
+      type: string
+      enum: [public, private, partial, excluded, classmates, fellows]
+      description: 公开/私密/部分可见/不给谁看/同学圈（同校同届可见，无需好友）/老乡圈（家乡同市可见，无需好友）
+    ContactVisibility:
+      type: string
+      enum: [self, friends, verified_friends, strong_tier]
+      description: 仅自己/全部好友/已验证好友/强交集好友（实现侧四档，§20.2；默认仅自己）
+    MsgType:
+      type: string
+      enum: [text, image, voice, video, location, card, file, system, contact_card, red_packet]
+      description: contact_card 为规划态 V1.x（当前未实现）；red_packet 为红包消息卡（由服务端代发，客户端不得自行拼卡）
+    UserBrief:
+      type: object
+      description: 用户简卡——real_name 已由服务端按渐显矩阵处理为展示值
+      properties:
+        user_id: { type: integer, format: int64 }
+        nickname: { type: string, example: 娟子 }
+        real_name: { type: string, nullable: true, example: "李*娟", description: 全名/掩码/null 由服务端判定 }
+        avatar_url: { type: string }
+        relation: { type: string, enum: [none, pending_out, pending_in, friend, blocked] }
+        intersection_tier: { type: string, enum: [T0, T1, T2, T3, FRIEND] }
+        match_tags: { type: array, items: { type: string }, example: ["同班", "同届"] }
+        mutual_friends: { type: integer, example: 3 }
+        reason: { type: string, example: "1996级 城关镇第二小学 六年2班", description: 推荐理由标签（必显） }
+    UserCard:
+      type: object
+      description: 他人资料卡——不满足可见性的字段整块缺省
+      allOf:
+        - $ref: '#/components/schemas/UserBrief'
+        - type: object
+          properties:
+            signature: { type: string }
+            moment_cover: { type: string, nullable: true, description: 朋友圈封面图 url（/media/ 相对路径或 OSS 绝对地址），未设置时为 null }
+            relation:
+              type: string
+              enum: [friend, pending_out, pending_in, blocked, none]
+              description: 当前查看者与该用户的关系——客户端据此渲染「发消息/等待验证/通过验证/加好友」按钮
+            educations: { type: array, items: { $ref: '#/components/schemas/Education' } }
+            hometown_display: { type: string, example: 河南周口, description: 家乡门禁分档（user_hometowns.visibility / privacy_settings.hometown_visibility 取更严）：private 缺省 / friends 仅好友 / fellows_only 好友或同乡 / public 按交集降级粒度（T3·FRIEND 到镇、T2 到县、T1 到市、T0 缺省） }
+            current_city: { type: string, description: 暂未下发：字段预留，当前实现不返回该字段 }
+            cross_experiences: { type: array, items: { type: string }, example: ["你们还同校于城关镇中学(1999级)"] }
+            intersection_banner: { type: string, example: "你们是 1996–2002 城关二小同届同学", description: 交集横幅分级措辞：双方任一经历为 V0 时降级为限定句，如"你们的经历显示同为 92 级 XX 中学（未验证）"（§3.1） }
+            can_view_moments: { type: boolean }
+            contact:
+              type: object
+              description: 【规划态 V1.x，当前未实现】联系方式块——不在可见范围时整块缺省；当前实现不下发该块
+              properties:
+                phone_masked: { type: string, example: "138****5678" }
+                wechat: { type: string }
+                email: { type: string }
+    UserSelf:
+      type: object
+      properties:
+        user_id: { type: integer, format: int64 }
+        dimi_no: { type: string, example: dimi_friend }
+        dimi_no_changed_at: { type: string, format: date-time, nullable: true, description: 最近一次自定义号修改时间；null 表示尚未设置 }
+        phone: { type: string, example: "138****5678" }
+        nickname: { type: string }
+        real_name: { type: string }
+        gender: { type: integer }
+        birth_year: { type: integer, nullable: true }
+        avatar_url: { type: string }
+        moment_cover: { type: string, nullable: true, description: 朋友圈封面图 url，未设置时为 null }
+        signature: { type: string }
+        is_minor: { type: boolean }
+        credit_score: { type: integer, example: 100 }
+        privacy: { $ref: '#/components/schemas/PrivacySettings' }
+    Education:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        stage: { $ref: '#/components/schemas/Stage' }
+        school_id: { type: integer, format: int64 }
+        school_name: { type: string, example: 城关镇第二小学 }
+        enroll_year: { type: integer, example: 1996 }
+        class_name_raw: { type: string, example: 六年2班 }
+        class_name_norm: { type: string, example: "6-2" }
+        department: { type: string, nullable: true }
+        major: { type: string, nullable: true }
+        verification_level: { $ref: '#/components/schemas/VerificationLevel' }
+        verified_at: { type: string, format: date-time, nullable: true }
+        verification_source: { type: string, enum: [peer_review, document, org_roster], nullable: true, description: 互证/证据/组织名册 }
+        visibility: { $ref: '#/components/schemas/Visibility' }
+    School:
+      type: object
+      properties:
+        school_id: { type: integer, format: int64 }
+        name: { type: string }
+        former_names: { type: array, items: { type: string }, description: 曾用名 }
+        region_code: { type: string }
+        stage: { $ref: '#/components/schemas/Stage' }
+    DiscoverResult:
+      type: object
+      description: Discover 检索/推荐分页——next_cursor 语义为「下一页页码字符串，无下一页为 null」（与 page/size 参数配套）
+      properties:
+        total_masked: { type: string, example: "10+", description: 防爬：总数模糊化 }
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UserBrief' }
+        next_cursor: { type: string, nullable: true, description: 下一页页码字符串（如 "2"），无下一页为 null }
+    CursorPage_UserBrief:
+      type: object
+      properties:
+        items:
+          type: array
+          items: { $ref: '#/components/schemas/UserBrief' }
+        next_cursor: { type: string, nullable: true }
+    PlaceholderRoster:
+      type: object
+      description: 班级预占位名册（沉睡名字，不含任何联系方式；V3.1 A7「沉睡不可见」原则）
+      properties:
+        rally_ready: { type: boolean, description: 该班是否已达召集令触发条件（已注册 ≥3 人） }
+        rally_card_url: { type: string, nullable: true, description: 召集令分享卡 H5（未生成邀请码时为 null） }
+        unit:
+          type: object
+          properties:
+            school_id: { type: integer, format: int64 }
+            school_name: { type: string, nullable: true }
+            enroll_year: { type: integer }
+            class_norm: { type: string }
+        registered_count: { type: integer, description: 该班级单元已注册同学数 }
+        placeholder_count: { type: integer, description: 预占位名字数 }
+        items:
+          type: array
+          description: 仅名字列表（不含任何联系方式）
+          items:
+            type: object
+            properties: { name: { type: string } }
+    FriendRequest:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        from_user: { $ref: '#/components/schemas/UserBrief' }
+        to_user_id: { type: integer, format: int64 }
+        verify_msg: { type: string }
+        attach_real_name: { type: boolean }
+        attach_education: { type: boolean }
+        intersection_snapshot: { type: string, example: "你们是 96 级六年 2 班同班同学", description: 申请当刻冻结的交集证据（§22.2） }
+        status: { type: string, enum: [pending, accepted, rejected, expired] }
+        expire_at: { type: string, format: date-time }
+    Conversation:
+      type: object
+      properties:
+        conv_id: { type: integer, format: int64 }
+        conv_type:
+          type: string
+          enum: [single, group]
+          description: single=好友单聊；group=班级群会话（由 /class-groups/join 创建，成员不要求互为好友，无 other/头像逻辑，标题取 conversations.title）
+        title: { type: string, nullable: true, description: 群会话为群标题（如"城关镇第二小学 1996级 六年2班"）；单聊为 null }
+        avatar_url: { type: string, nullable: true }
+        last_msg_summary: { type: string, nullable: true }
+        last_msg_time: { type: string, format: date-time, nullable: true }
+        unread_count: { type: integer, description: 按成员独立的未读位点 }
+        member_count: { type: integer, description: 仅 conv_type=group 时返回（班级群成员数） }
+        group_kind:
+          type: string
+          enum: [class, hometown]
+          nullable: true
+          description: 仅 conv_type=group 时返回；class=班级群（class_groups）、hometown=老乡群（hometown_groups），均不命中为 null
+        is_pinned: { type: boolean }
+        is_muted: { type: boolean }
+        intersection_banner: { type: string, nullable: true, description: 单聊顶部交集标签条 }
+    Message:
+      type: object
+      properties:
+        msg_id: { type: integer, format: int64 }
+        conv_id: { type: integer, format: int64 }
+        sender: { $ref: '#/components/schemas/UserBrief' }
+        msg_type: { $ref: '#/components/schemas/MsgType' }
+        content: { type: string, description: 文本/媒体URL/位置JSON/系统卡片JSON }
+        status: { type: string, enum: [sending, delivered, read, recalled] }
+        client_msg_id: { type: string }
+        created_at: { type: string, format: date-time }
+    Group:
+      type: object
+      properties:
+        group_id: { type: integer, format: int64 }
+        group_type: { type: string, enum: [normal, class, hometown, official] }
+        name: { type: string }
+        avatar_url: { type: string }
+        member_count: { type: integer }
+        roster_progress: { type: string, nullable: true, example: "32/45 人已归队", description: 班级群点名册进度 }
+        announcement: { type: string, nullable: true }
+    ClassGroup:
+      type: object
+      description: 班级群信息——班级单元一一对应一个群会话；群主退群顺延最早加入者，空群后下一位加入者继任
+      properties:
+        conv_id: { type: integer, format: int64 }
+        title: { type: string, nullable: true, example: "城关镇第二小学 1996级 六年2班" }
+        member_count: { type: integer, example: 3 }
+        announcement: { type: string, description: 群公告，未设置为空串 }
+        joined: { type: boolean, description: 当前用户是否已入群 }
+        unread_count: { type: integer, description: 我的未读数（未入群恒为 0；未读位点按成员独立） }
+    ClassGroupUnit:
+      type: object
+      description: 我的班级单元（含班级的教育经历）及其群信息；群尚未创建时 group 为 null
+      properties:
+        school_id: { type: integer, format: int64, example: 1001 }
+        school_name: { type: string, nullable: true, example: 城关镇第二小学 }
+        enroll_year: { type: integer, example: 1996 }
+        class_name: { type: string, example: 六年2班, description: 班名展示值（原文优先，缺省回退规范化名） }
+        group: { $ref: '#/components/schemas/ClassGroup', nullable: true }
+    ClassGroupJoinResult:
+      allOf:
+        - $ref: '#/components/schemas/ClassGroup'
+        - type: object
+          properties:
+            created: { type: boolean, description: 本次调用是否新建了群（true=我是建群者/群主） }
+    ClassGroupMember:
+      allOf:
+        - $ref: '#/components/schemas/UserBrief'
+        - type: object
+          properties:
+            is_owner: { type: boolean, description: 是否群主 }
+    HometownGroup:
+      type: object
+      description: 老乡群信息——家乡同市单元（region_code 前 4 位）一一对应一个群会话；群主退群顺延最早加入者，空群后下一位加入者继任
+      properties:
+        conv_id: { type: integer, format: int64 }
+        title: { type: string, nullable: true, example: "周口市老乡群" }
+        member_count: { type: integer, example: 3 }
+        announcement: { type: string, description: 群公告，未设置为空串 }
+        joined: { type: boolean, description: 当前用户是否已入群 }
+        unread_count: { type: integer, description: 我的未读数（未入群恒为 0；未读位点按成员独立） }
+    HometownGroupUnit:
+      type: object
+      description: 我的老乡群单元（本人家乡 type=1）及其群信息；群尚未创建时 group 为 null；未设家乡时 /hometown-groups/mine 返回空 items
+      properties:
+        region_code: { type: string, example: "411623102", description: 家乡四级行政区划码 }
+        region_name: { type: string, nullable: true, example: 周口市, description: 市级行政区名（region_code 前 4 位前缀匹配 regions level=2） }
+        group: { $ref: '#/components/schemas/HometownGroup', nullable: true }
+    HometownGroupJoinResult:
+      allOf:
+        - $ref: '#/components/schemas/HometownGroup'
+        - type: object
+          properties:
+            created: { type: boolean, description: 本次调用是否新建了群（true=我是建群者/群主） }
+    HometownGroupMember:
+      allOf:
+        - $ref: '#/components/schemas/UserBrief'
+        - type: object
+          properties:
+            is_owner: { type: boolean, description: 是否群主 }
+    HometownPageGroup:
+      type: object
+      description: 家乡页老乡群入口卡（该市老乡群，复用 hometown_groups；群未创建时家乡页 group 为 null）
+      properties:
+        conv_id: { type: integer, format: int64 }
+        title: { type: string, nullable: true, example: "周口市老乡群" }
+        member_count: { type: integer, example: 3 }
+    HometownPage:
+      type: object
+      description: 家乡页聚合（M1；封面/简介编辑与名片区属 M2）
+      properties:
+        region_code: { type: string, example: "411623102", description: 镇级行政区划码 }
+        region_path:
+          type: array
+          description: 省/市/区县/镇名称逐级数组（regions 祖先链）
+          items: { type: string }
+          example: ["河南省", "周口市", "商水县", "城关乡"]
+        cover_media: { type: string, nullable: true, description: 封面图（/media/ 路径），未设置 null }
+        intro: { type: string, description: 集体简介，未设置为空串 }
+        follower_count: { type: integer }
+        content_count: { type: integer }
+        is_following: { type: boolean, description: 我是否已关注该镇 }
+        can_post: { type: boolean, description: 我是否可投稿（籍贯与该镇同市，前 4 位前缀一致） }
+        group: { $ref: '#/components/schemas/HometownPageGroup', nullable: true }
+    HometownContent:
+      type: object
+      description: 家乡页投稿内容（M1 最新区；热度/置顶字段 M2 预留不下发）
+      properties:
+        content_id: { type: integer, format: int64 }
+        region_code: { type: string, example: "411623102", description: 归属镇 }
+        category: { type: string, enum: [scenery, product, craft, story], description: 风光/特产/手艺/故事 }
+        title: { type: string, maxLength: 60 }
+        body: { type: string, maxLength: 20000 }
+        media: { type: array, maxItems: 9, items: { type: string } }
+        author: { $ref: '#/components/schemas/UserBrief', nullable: true, description: 脱敏 UserBrief（scene 复用 moment 可见性规则）；作者家乡可见性按 public/friends/fellows_only/private 取两入口交集，不可见时列表过滤、详情返回 41001 }
+        view_count: { type: integer, description: 浏览数（同人 24h 去重） }
+        like_count: { type: integer }
+        liked: { type: boolean, description: 我是否已点赞 }
+        rolled_up: { type: boolean, description: 低密度兜底标记：同县其他镇内容（仅 rollup_items 中出现） }
+        created_at: { type: string, format: date-time }
+    HometownPublicPage:
+      type: object
+      description: 家乡页公开数据（免鉴权，H5 落地页）：不含 body 全文、不含作者 id
+      properties:
+        region_code: { type: string, example: "411623102" }
+        region_name: { type: string, example: 城关乡 }
+        cover_media: { type: string, nullable: true }
+        intro: { type: string }
+        follower_count: { type: integer }
+        items:
+          type: array
+          description: 最新 10 条（倒序）
+          items:
+            type: object
+            properties:
+              category: { type: string, enum: [scenery, product, craft, story] }
+              title: { type: string }
+              cover: { type: string, nullable: true, description: 首图（无图 null） }
+              view_count: { type: integer }
+              author_nickname: { type: string, description: 掩码昵称（maskName 首尾规则，与召集令一致；仅昵称，无作者 id） }
+              created_at: { type: string, format: date-time }
+    Moment:
+      type: object
+      properties:
+        moment_id: { type: integer, format: int64 }
+        author: { $ref: '#/components/schemas/UserBrief' }
+        content_type: { type: string, enum: [text, image, article, video, article_card], description: 当前实现支持 text / image / article；video / article_card 为 V1.x 规划态 }
+        content: { type: string, description: 文本（>6行客户端折叠"全文"） }
+        media: { type: array, items: { type: string } }
+        article_card:
+          type: object
+          nullable: true
+          description: 固定规格卡片（§26.3，V1.x 规划态，当前恒为 null），全文不进 Feed
+          properties:
+            article_id: { type: integer, format: int64 }
+            title: { type: string }
+            cover_url: { type: string }
+            summary: { type: string, description: 2 行硬截断 }
+            read_minutes: { type: integer }
+        location_poi: { type: string, nullable: true }
+        visibility: { $ref: '#/components/schemas/MomentVisibility' }
+        like_count: { type: integer }
+        likes:
+          type: array
+          description: 点赞名单（仅共同好友口径，服务端已过滤），微信式「♥ 张三、李四」渲染用
+          items: { $ref: '#/components/schemas/UserBrief' }
+        liked: { type: boolean, description: 我是否已点赞 }
+        is_own: { type: boolean, description: 是否本人动态 }
+        comment_count: { type: integer, description: 可见评论总数（comment_preview 仅截 3 条） }
+        comment_preview:
+          type: array
+          description: 仅共同好友互动可见（服务端已过滤）
+          items:
+            type: object
+            properties:
+              from_user: { $ref: '#/components/schemas/UserBrief' }
+              reply_to_user: { $ref: '#/components/schemas/UserBrief', nullable: true, description: 被回复人脱敏档案（可见范围内解析不到为 null） }
+              content: { type: string }
+        created_at: { type: string, format: date-time }
+    MomentDetail:
+      allOf:
+        - $ref: '#/components/schemas/Moment'
+        - type: object
+          properties:
+            comments:
+              type: array
+              items:
+                type: object
+                properties:
+                  id: { type: integer, format: int64 }
+                  from_user: { $ref: '#/components/schemas/UserBrief' }
+                  reply_to_user_id: { type: integer, format: int64, nullable: true, description: 被回复人 user_id，非回复为 null }
+                  reply_to_user: { $ref: '#/components/schemas/UserBrief', nullable: true, description: 被回复人脱敏档案（可见范围内解析不到为 null） }
+                  content: { type: string }
+                  created_at: { type: string, format: date-time }
+    ArticleInput:
+      type: object
+      properties:
+        title: { type: string, maxLength: 64 }
+        content: { type: string }
+        cover_media_id: { type: string }
+        column_id: { type: integer, format: int64 }
+        visibility: { $ref: '#/components/schemas/MomentVisibility' }
+    ArticleBrief:
+      type: object
+      properties:
+        article_id: { type: integer, format: int64 }
+        title: { type: string }
+        cover_url: { type: string }
+        summary: { type: string }
+        read_minutes: { type: integer }
+        like_count: { type: integer }
+        comment_count: { type: integer }
+        published_at: { type: string, format: date-time }
+    Article:
+      allOf:
+        - $ref: '#/components/schemas/ArticleBrief'
+        - type: object
+          properties:
+            author: { $ref: '#/components/schemas/UserBrief' }
+            content: { type: string, description: 富文本 JSON }
+            word_count: { type: integer }
+            column_name: { type: string, nullable: true }
+    PrivacySettings:
+      type: object
+      description: 布尔字段须传 JSON true/false，不接受字符串或数字；add_me_via 仅接受已声明的键及布尔值。
+      properties:
+        friend_verify_required: { type: boolean, default: true }
+        name_mode: { type: string, enum: [open, balanced, strict], default: balanced, description: 真名可见三档（§5.2.8） }
+        add_me_via:
+          type: object
+          additionalProperties: false
+          properties:
+            dimi_no: { type: boolean, default: true }
+            phone: { type: boolean, default: true }
+            school_search: { type: boolean, default: true }
+            hometown_search: { type: boolean, default: true }
+            group: { type: boolean, default: true }
+            business_card: { type: boolean, default: true }
+            contact_match: { type: boolean, default: true }
+        hometown_visibility: { $ref: '#/components/schemas/Visibility' }
+        current_city_visible: { type: boolean, default: true }
+        stranger_moments_10: { type: boolean, default: false }
+        friend_moments_range: { type: string, enum: [all, half_year, one_month, three_days], default: all, description: 含 one_month（契约不变，实现侧 bug 已由服务端修复确认） }
+        read_receipt: { type: boolean, default: false }
+        typing_visible: { type: boolean, default: true }
+        group_temp_chat: { type: boolean, default: false }
+        notify_when_searched: { type: boolean, default: false, description: 被检索提醒（§5.2.7） }
+        personalized_recommend: { type: boolean, default: true, description: 关闭后推荐接口返回空列表，主动检索仍可用 }
+        female_protect: { type: boolean, default: false, description: 女性保护：开启后找老乡检索等场景对本人施加更严保护规则 }
+    VerificationLevel:
+      type: integer
+      enum: [0, 1, 2, 3]
+      description: V0 自述 / V1 同窗互证 / V2 证据验证 / V3 组织背书（§3.1）
+    VerificationEvidence:
+      type: object
+      description: V2 证据验证工单；源文件核验后 30 天内删除，仅留存不含图像的核验记录
+      properties:
+        id: { type: integer, format: int64 }
+        education_id: { type: integer, format: int64 }
+        type: { type: string, enum: [diploma, student_card, class_photo], description: 毕业证/学生证/毕业照 }
+        status: { type: string, enum: [pending, approved, rejected] }
+        reject_reason: { type: string, nullable: true }
+        created_at: { type: string, format: date-time }
+        source_file_deleted_at: { type: string, format: date-time, nullable: true, description: 源文件删除时间（§3.1 红线） }
+    ClassPhoto:
+      type: object
+      description: 云班级毕业照——默认仅本班 V1+ 成员可见，永不公开/不进 Feed/不进搜索结果
+      properties:
+        photo_id: { type: integer, format: int64 }
+        school_id: { type: integer, format: int64 }
+        enroll_year: { type: integer }
+        class_norm: { type: string }
+        uploader: { $ref: '#/components/schemas/UserBrief' }
+        original_url: { type: string }
+        restored_url: { type: string, nullable: true, description: AI 修复产物（带"AI 修复"水印标识，A5） }
+        face_grid:
+          type: array
+          description: 人脸分割网格坐标（仅检测位置，不做识别）
+          items:
+            type: object
+            properties:
+              grid_index: { type: integer }
+              x: { type: number }
+              y: { type: number }
+              w: { type: number }
+              h: { type: number }
+        visibility: { type: string, enum: [class_verified, grade], description: 本班 V1+ 成员/同届 }
+        status: { type: string, enum: [processing, active, taken_down] }
+        created_at: { type: string, format: date-time }
+    PhotoAnnotation:
+      type: object
+      properties:
+        annotation_id: { type: integer, format: int64 }
+        photo_id: { type: integer, format: int64 }
+        grid_index: { type: integer }
+        annotated_name: { type: string }
+        annotated_by: { $ref: '#/components/schemas/UserBrief' }
+        claimed_by: { type: integer, format: int64, nullable: true, description: 认领人 user_id }
+        claim_status: { type: string, enum: [unclaimed, claiming, claimed, blurred], description: 未认领/认领中/已认领/已模糊 }
+        correct_count: { type: integer, description: 纠错次数，≥2 自动隐藏并通知上传者（A2.4） }
+        is_hidden: { type: boolean }
+        created_at: { type: string, format: date-time }
+    PhotoClaim:
+      type: object
+      description: 认领核验记录——不含人脸特征数据，特征即用即删（A2.2）
+      properties:
+        claim_id: { type: integer, format: int64 }
+        photo_id: { type: integer, format: int64 }
+        grid_index: { type: integer }
+        claimant_id: { type: integer, format: int64 }
+        method: { type: string, enum: [face, peer, document], description: 三路径平权（A2.1） }
+        verify_result: { type: string, enum: [pending, passed, rejected] }
+        peer_confirms_needed: { type: integer, nullable: true, example: 2, description: method=peer 时所需互证人数 }
+        created_at: { type: string, format: date-time }
+    Event:
+      type: object
+      description: 聚会——AA 仅记账不动钱，平台不经手资金
+      properties:
+        event_id: { type: integer, format: int64 }
+        creator: { $ref: '#/components/schemas/UserBrief' }
+        unit_type: { type: string, enum: [class, hometown, group] }
+        unit_id: { type: integer, format: int64 }
+        title: { type: string }
+        event_time: { type: string, format: date-time }
+        location_poi: { type: string }
+        signup_deadline: { type: string, format: date-time }
+        signup_count: { type: integer }
+        status: { type: string, enum: [open, closed, finished, cancelled] }
+        created_at: { type: string, format: date-time }
+    EventSignup:
+      type: object
+      properties:
+        event_id: { type: integer, format: int64 }
+        user: { $ref: '#/components/schemas/UserBrief' }
+        status: { type: string, enum: [signup, leave, waitlist], description: 报名/请假/候补 }
+        aa_paid: { type: boolean, description: 发起人线下标记"已付"（仅记账） }
+        created_at: { type: string, format: date-time }
+    CalendarEvent:
+      type: object
+      properties:
+        id: { type: integer, format: int64 }
+        type: { type: string, enum: [life, relationship, system, regional], description: 人生历/关系历/系统历/地域历 }
+        title: { type: string, example: "你们班毕业 28 年了" }
+        trigger_date: { type: string, format: date }
+        payload: { type: object, description: 场景化负载（话题卡/回忆卡/聚会入口等） }
+        pushed_at: { type: string, format: date-time, nullable: true }
+    AssistRelation:
+      type: object
+      description: 协助关系——协助者不能读消息/看朋友圈/代为聊天；所有协助行为写审计日志且被协助端可见
+      properties:
+        relation_id: { type: integer, format: int64 }
+        assisted_user: { $ref: '#/components/schemas/UserBrief', description: 被协助人（父母） }
+        assistant_user: { $ref: '#/components/schemas/UserBrief', description: 协助者（子女） }
+        scope:
+          type: array
+          items: { type: string, enum: [edit_education, manage_privacy] }
+          description: 可代办项白名单
+        status: { type: string, enum: [pending, active, revoked] }
+        confirmed_at: { type: string, format: date-time, nullable: true }
+        revoked_at: { type: string, format: date-time, nullable: true }
+    Subscription:
+      type: object
+      description: 会员（DIMI+）——只含自身能力增强，不含任何他人信息访问权
+      properties:
+        plan: { type: string, enum: [free, monthly, yearly], }
+        is_active: { type: boolean }
+        started_at: { type: string, format: date-time, nullable: true }
+        expires_at: { type: string, format: date-time, nullable: true }
+        source: { type: string, enum: [self, group_buy, compensation], nullable: true, description: 自购/组织团购/补偿 }
+        auto_renew: { type: boolean }
+    Entitlement:
+      type: object
+      properties:
+        feature: { type: string, example: photo_restore, description: 权益项：消息漫游/谁看过我/检索深度/照片修复/聚会发起等 }
+        quota: { type: integer, nullable: true, example: 500, description: 额度值（null=不限量） }
+        used: { type: integer, nullable: true }
+        reset_cycle: { type: string, enum: [monthly, none], nullable: true }
+    RecommendTag:
+      type: object
+      properties:
+        tag_id: { type: integer, format: int64 }
+        label: { type: string, example: "90 年代小学生" }
+        source: { type: string, example: "由您的教育经历生成" }
+        created_at: { type: string, format: date-time }
+    WalletInfo:
+      type: object
+      description: 觅豆钱包总览——余额均为赠送币，无充值/提现/现金价值（V3.1 A8）
+      properties:
+        balance: { type: integer, description: 当前余额（觅豆） }
+        total_earned: { type: integer, description: 累计获得 }
+        total_spent: { type: integer, description: 累计消耗 }
+        today_checked_in: { type: boolean, description: 今日是否已打卡（daily_login 任务已发放） }
+        tasks:
+          type: array
+          description: 任务面板（不含 comment 类任务；per_target 周期无完成态，done 恒 false）
+          items:
+            type: object
+            properties:
+              code: { type: string, example: daily_login, description: 任务码（daily_login/edu_complete/first_moment/friend_accept 等） }
+              amount: { type: integer, example: 5, description: 奖励觅豆数 }
+              period: { type: string, enum: [day, once, per_target], description: 每日一次/一次性/每目标一次 }
+              remark: { type: string, example: 每日活跃奖励 }
+              done: { type: boolean, description: 是否已完成（仅 day/once 有意义） }
+    CoinTransaction:
+      type: object
+      description: 觅豆流水
+      properties:
+        id: { type: integer, format: int64 }
+        biz_type: { type: string, example: red_packet_send, description: 业务类型（grant_task/red_packet_send/red_packet_claim/red_packet_refund/gift_send/gift_recv 等） }
+        direction: { type: string, enum: [in, out] }
+        amount: { type: integer }
+        balance_after: { type: integer, description: 变动后余额 }
+        remark: { type: string, example: 发红包 }
+        created_at: { type: string, format: date-time }
+    RedPacket:
+      type: object
+      description: 红包——24h 未领完剩余觅豆原路退回发出者币账户（退的是币不是钱）
+      properties:
+        packet_id: { type: string, example: RP1a2b3c4d5e6f7890abcd1234 }
+        conv_id: { type: integer, format: int64 }
+        msg_id: { type: integer, format: int64, nullable: true, description: 服务端代发的红包消息卡 }
+        sender: { $ref: '#/components/schemas/UserBrief' }
+        type: { type: string, enum: [luck, normal], description: 拼手气/普通 }
+        total_amount: { type: integer, description: 总额（觅豆） }
+        count: { type: integer, description: 总个数 }
+        claimed_amount: { type: integer }
+        claimed_count: { type: integer }
+        greeting: { type: string, nullable: true }
+        status: { type: string, enum: [active, finished, expired], description: 可领/已领完/已过期 }
+        expire_at: { type: string, format: date-time }
+        created_at: { type: string, format: date-time }
+    RedPacketDetail:
+      allOf:
+        - $ref: '#/components/schemas/RedPacket'
+        - type: object
+          properties:
+            claims:
+              type: array
+              description: 领取列表（按领取先后）
+              items:
+                type: object
+                properties:
+                  user: { $ref: '#/components/schemas/UserBrief' }
+                  amount: { type: integer }
+                  is_best: { type: boolean, description: 是否手气最佳（领完时结算） }
+                  created_at: { type: string, format: date-time }
+            my_claim:
+              type: object
+              nullable: true
+              description: 我的领取记录，未领取为 null
+              properties:
+                amount: { type: integer }
+                is_best: { type: boolean }

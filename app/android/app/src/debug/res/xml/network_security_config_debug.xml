@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- debug 联调：放行明文 HTTP（模拟器 10.0.2.2 / 局域网真机）。
+     release 用 main/res/xml/network_security_config.xml，全量禁明文。 -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true" />
+</network-security-config>

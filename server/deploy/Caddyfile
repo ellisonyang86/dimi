@@ -1,0 +1,25 @@
+# DIMI · 围城 V0.9 — Caddy 反向代理（自动 HTTPS）
+# 安装：sudo cp deploy/Caddyfile /etc/caddy/Caddyfile && sudo systemctl reload caddy
+# 将 api.dimi.example.com 替换为真实域名（需已备案并解析到本机），Caddy 自动签发/续期证书。
+
+api.dimi.example.com {
+	# 后端监听 127.0.0.1:8080（见 DEPLOY.md，PORT=8080）
+	reverse_proxy 127.0.0.1:8080
+
+	# 媒体不可变（文件名随机、内容不变），长缓存；OSS 模式下本地 /media 无流量，此配置无害
+	@media path /media/*
+	header @media Cache-Control "public, max-age=31536000, immutable"
+
+	# 请求体上限 40MB：上传路由（/v1/misc/upload）为视频消息（chat_video ≤20MB 二进制，
+	# base64 后约 27MB）放宽到 28MB，此处留余量；其余 API 后端 readBody 仍 cap 1MB。
+	# 超限直接 413，不进后端
+	request_body {
+		max_size 40MB
+	}
+
+	# 压缩（API JSON 与静态文本受益；jpg/png/webp 为已压缩格式，Caddy 默认跳过）
+	encode zstd gzip
+
+	# 安全响应头（X-Content-Type-Options / X-Frame-Options / Referrer-Policy / Cache-Control: no-store）
+	# 由后端 app.js 统一输出，此处不重复设置，避免双份头。
+}

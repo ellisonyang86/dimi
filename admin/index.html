@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DIMI · 围城 — 单元密度看板</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif; }
+  body { background:#F5F3EE; color:#111; }
+  .page { max-width:1100px; margin:0 auto; padding:24px 20px 60px; }
+  h1 { font-size:20px; }
+  h1 .dot { color:#47685C; }
+  .sub { color:#888; font-size:12px; margin-top:4px; }
+  .card { background:#fff; border:1px solid #e8e8e8; border-radius:8px; }
+  /* token 区 */
+  .token-bar { display:flex; gap:10px; align-items:center; margin:16px 0; padding:12px 14px; }
+  .token-bar label { font-size:13px; color:#555; white-space:nowrap; }
+  .token-bar input { flex:1; max-width:360px; height:34px; border:1px solid #ddd; border-radius:6px; padding:0 10px; font-size:13px; }
+  .token-bar input:focus { outline:none; border-color:#47685C; }
+  .btn { background:#47685C; color:#fff; border:none; border-radius:6px; height:34px; padding:0 16px; font-size:13px; cursor:pointer; }
+  .btn.ghost { background:#f0f0f0; color:#555; }
+  .hint { font-size:11px; color:#aaa; }
+  /* 大数字卡 */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:16px; }
+  .stat { padding:16px; }
+  .stat .label { font-size:12px; color:#999; }
+  .stat .num { font-size:30px; font-weight:700; margin-top:6px; }
+  .stat .num.green { color:#47685C; }
+  .stat .foot { font-size:11px; color:#bbb; margin-top:4px; }
+  /* 错误提示 */
+  .err { display:none; background:#fff5f5; border:1px solid #f2c1c1; color:#a33; border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:16px; line-height:1.7; }
+  .err.on { display:block; }
+  /* 表格工具栏 */
+  .toolbar { display:flex; align-items:center; gap:12px; margin-bottom:10px; flex-wrap:wrap; }
+  .tabs { display:flex; background:#e9e9e9; border-radius:6px; padding:2px; }
+  .tabs button { border:none; background:transparent; padding:7px 18px; font-size:13px; border-radius:5px; cursor:pointer; color:#555; }
+  .tabs button.on { background:#fff; color:#47685C; font-weight:600;  }
+  .toolbar input[type=search] { height:32px; border:1px solid #ddd; border-radius:6px; padding:0 10px; font-size:13px; width:220px; }
+  .toolbar input[type=search]:focus { outline:none; border-color:#47685C; }
+  .toolbar select { height:32px; border:1px solid #ddd; border-radius:6px; font-size:13px; padding:0 8px; color:#555; background:#fff; }
+  .def { font-size:12px; color:#888; margin-bottom:10px; }
+  .def b { color:#47685C; }
+  /* 表格 */
+  .table-card { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { padding:10px 12px; border-bottom:1px solid #f0f0f0; text-align:left; white-space:nowrap; }
+  th { font-size:12px; color:#999; font-weight:400; background:#fafafa; }
+  tr:last-child td { border-bottom:none; }
+  .unit-name { white-space:normal; min-width:220px; font-weight:600; }
+  .lv { display:inline-block; font-size:11px; padding:2px 8px; border-radius:4px; background:#e6f0ff; color:#2b6de0; }
+  .lv.town { background:#f3eaff; color:#8a5bd6; }
+  .pbar { display:inline-block; vertical-align:middle; width:120px; height:8px; background:#eee; border-radius:4px; overflow:hidden; margin-right:8px; }
+  .pbar i { display:block; height:100%; border-radius:4px; }
+  .pbar i.ok { background:#47685C; }
+  .pbar i.near { background:#e8890c; }
+  .pbar i.low { background:#c9c9c9; }
+  .ptext { color:#666; font-size:12px; }
+  .badge { display:inline-block; font-size:11px; padding:2px 8px; border-radius:10px; }
+  .badge.ok { background:#e8f8ef; color:#47685C; font-weight:600; }
+  .badge.no { background:#f0f0f0; color:#999; }
+  .empty-row td { text-align:center; color:#bbb; padding:36px 0; }
+  .loading { color:#999; font-size:13px; text-align:center; padding:36px 0; }
+</style>
+<link rel="icon" type="image/svg+xml" href="/h5/assets/dimi-logo.svg">
+<link rel="stylesheet" href="/h5/assets/brand.css">
+</head>
+<body>
+<div class="page">
+  <h1><img class="brand-mark" src="/h5/assets/dimi-logo.svg" alt=""> DIMI · 围城 — 单元密度看板</h1>
+  <div class="sub">密度战指挥看板 · 以「单元」而非「人头」着色 · 内部运营使用</div>
+
+  <div class="card token-bar">
+    <label for="tokenInput">Admin Token</label>
+    <input id="tokenInput" type="text" placeholder="请输入管理员 Token">
+    <button class="btn" id="saveTokenBtn">保存并刷新</button>
+    <span class="hint">Token 存于本机 localStorage，仅保存在当前浏览器。</span>
+  </div>
+
+  <div class="err" id="errBox"></div>
+
+  <div class="stats" id="stats">
+    <div class="card stat"><div class="label">单元总数</div><div class="num" id="stTotal">—</div><div class="foot">班级 + 乡镇单元</div></div>
+    <div class="card stat"><div class="label">达标单元</div><div class="num green" id="stQualified">—</div><div class="foot">满足密度红线</div></div>
+    <div class="card stat"><div class="label">达标率</div><div class="num green" id="stRate">—</div><div class="foot">达标单元 / 单元总数</div></div>
+    <div class="card stat"><div class="label">注册总人数</div><div class="num" id="stUsers">—</div><div class="foot" id="stRet">7 日留存 —</div></div>
+  </div>
+
+  <div class="toolbar">
+    <div class="tabs" id="levelTabs">
+      <button data-level="class" class="on">班级单元</button>
+      <button data-level="town">乡镇单元</button>
+    </div>
+    <input type="search" id="filterInput" placeholder="按单元名过滤…">
+    <select id="sortSelect">
+      <option value="rate">按注册完成率排序</option>
+      <option value="registered">按注册人数排序</option>
+      <option value="retention">按 7 留排序</option>
+      <option value="name">按名称排序</option>
+    </select>
+  </div>
+  <div class="def">达标定义：<b>注册 ≥15 人 且 7 日留存 ≥60%</b>（V3.0 §2.1）· 进度条：<span style="color:#47685C;">绿 = 达标</span> · <span style="color:#e8890c;">橙 = 接近（≥60%）</span> · 灰 = 不足</div>
+
+  <div class="card table-card">
+    <table>
+      <thead>
+        <tr>
+          <th>单元名</th>
+          <th>层级</th>
+          <th>注册进度（已注册 / 目标）</th>
+          <th>7 日留存</th>
+          <th>是否达标</th>
+        </tr>
+      </thead>
+      <tbody id="tbody">
+        <tr class="empty-row"><td colspan="5"><span class="loading">加载中…</span></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  var TOKEN_KEY = 'dimi_admin_token';
+
+  var state = {
+    level: 'class',
+    filter: '',
+    sort: 'rate',
+    units: []
+  };
+
+  function $(id) { return document.getElementById(id); }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+    });
+  }
+
+  function num(v, dft) {
+    var n = Number(v);
+    return isFinite(n) ? n : (dft || 0);
+  }
+
+  function fmtPct(v) {
+    if (v == null || !isFinite(Number(v))) return '—';
+    var n = Number(v);
+    if (n <= 1) n = n * 100; // 兼容 0~1 小数形式
+    return Math.round(n) + '%';
+  }
+
+  function getToken() {
+    return localStorage.getItem(TOKEN_KEY) || '';
+  }
+
+  function showErr(msg) {
+    var box = $('errBox');
+    box.innerHTML = msg;
+    box.className = 'err on';
+  }
+
+  function clearErr() {
+    var box = $('errBox');
+    box.className = 'err';
+    box.innerHTML = '';
+  }
+
+  function api(path) {
+    return fetch(path, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json', 'X-Admin-Token': getToken() }
+    }).then(function (res) {
+      if (res.status === 401 || res.status === 403) {
+        var err = new Error('unauthorized');
+        err.code = 401;
+        throw err;
+      }
+      if (!res.ok) {
+        var e = new Error('http ' + res.status);
+        e.code = res.status;
+        throw e;
+      }
+      return res.json();
+    }).then(function (body) {
+      if (!body || body.data == null) throw new Error('bad envelope');
+      return body.data;
+    });
+  }
+
+  function handleErr(e) {
+    if (e && e.code === 401) {
+      showErr('⚠️ Token 无效或已过期（401）。请在上方输入正确的 Admin Token 后点击「保存并刷新」。');
+    } else {
+      showErr('⚠️ 数据加载失败（' + escapeHtml((e && e.message) || '网络错误') + '）。请检查网络或稍后重试。');
+    }
+  }
+
+  /* ---------- 大数字卡 ---------- */
+  function renderSummary(d) {
+    d = d || {};
+    var total = num(d.total_units);
+    var qualified = num(d.qualified_units);
+    $('stTotal').textContent = total;
+    $('stQualified').textContent = qualified;
+    $('stRate').textContent = (d.qualified_rate != null)
+      ? fmtPct(d.qualified_rate)
+      : (total > 0 ? Math.round(qualified / total * 100) + '%' : '—');
+    $('stUsers').textContent = num(d.total_users);
+    $('stRet').textContent = '7 日留存 ' + fmtPct(d.dau7_retention);
+  }
+
+  function loadSummary() {
+    return api('/admin-api/density/summary').then(renderSummary).catch(handleErr);
+  }
+
+  /* ---------- 单元表格 ---------- */
+  function progressClass(registered, target) {
+    if (target <= 0) return 'low';
+    var r = registered / target;
+    if (registered >= 15) return 'ok';      // 达到注册红线
+    if (r >= 0.6) return 'near';            // 接近
+    return 'low';
+  }
+
+  function renderTable() {
+    var tbody = $('tbody');
+    var kw = state.filter.trim().toLowerCase();
+    var rows = state.units.filter(function (u) {
+      if (!kw) return true;
+      return String(u.unit_name || '').toLowerCase().indexOf(kw) >= 0;
+    });
+
+    rows.sort(function (a, b) {
+      var ka, kb;
+      switch (state.sort) {
+        case 'registered':
+          ka = num(a.registered); kb = num(b.registered); return kb - ka;
+        case 'retention':
+          ka = num(a.retention_7d); kb = num(b.retention_7d); return kb - ka;
+        case 'name':
+          return String(a.unit_name || '').localeCompare(String(b.unit_name || ''), 'zh');
+        case 'rate':
+        default:
+          ka = num(a.target) > 0 ? num(a.registered) / num(a.target) : 0;
+          kb = num(b.target) > 0 ? num(b.registered) / num(b.target) : 0;
+          return kb - ka;
+      }
+    });
+
+    if (!rows.length) {
+      tbody.innerHTML = '<tr class="empty-row"><td colspan="5">暂无单元数据</td></tr>';
+      return;
+    }
+
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+      var u = rows[i] || {};
+      var registered = num(u.registered);
+      var target = Math.max(num(u.target), 0);
+      var pct = target > 0 ? Math.min(100, Math.round(registered / target * 100)) : 0;
+      var lv = (u.level === 'town') ? 'town' : 'class';
+      var lvText = lv === 'town' ? '乡镇' : '班级';
+      var qualified = !!u.qualified;
+      html += '<tr>' +
+        '<td class="unit-name">' + escapeHtml(u.unit_name || '—') + '</td>' +
+        '<td><span class="lv ' + lv + '">' + lvText + '</span></td>' +
+        '<td><span class="pbar"><i class="' + progressClass(registered, target) + '" style="width:' + pct + '%;"></i></span>' +
+        '<span class="ptext">' + registered + ' / ' + target + '（' + pct + '%）</span></td>' +
+        '<td>' + fmtPct(u.retention_7d) + '</td>' +
+        '<td>' + (qualified
+          ? '<span class="badge ok">达标</span>'
+          : '<span class="badge no">未达标</span>') + '</td>' +
+        '</tr>';
+    }
+    tbody.innerHTML = html;
+  }
+
+  function loadUnits() {
+    $('tbody').innerHTML = '<tr class="empty-row"><td colspan="5"><span class="loading">加载中…</span></td></tr>';
+    return api('/admin-api/density/units?level=' + encodeURIComponent(state.level))
+      .then(function (data) {
+        state.units = Array.isArray(data) ? data : [];
+        renderTable();
+      })
+      .catch(function (e) {
+        state.units = [];
+        $('tbody').innerHTML = '<tr class="empty-row"><td colspan="5">加载失败</td></tr>';
+        handleErr(e);
+      });
+  }
+
+  function refreshAll() {
+    clearErr();
+    loadSummary();
+    loadUnits();
+  }
+
+  /* ---------- 事件绑定 ---------- */
+  $('levelTabs').addEventListener('click', function (e) {
+    var btn = e.target.closest('button[data-level]');
+    if (!btn) return;
+    var btns = this.querySelectorAll('button');
+    for (var i = 0; i < btns.length; i++) btns[i].className = '';
+    btn.className = 'on';
+    state.level = btn.getAttribute('data-level');
+    loadUnits();
+  });
+
+  $('filterInput').addEventListener('input', function () {
+    state.filter = this.value;
+    renderTable();
+  });
+
+  $('sortSelect').addEventListener('change', function () {
+    state.sort = this.value;
+    renderTable();
+  });
+
+  $('saveTokenBtn').addEventListener('click', function () {
+    var v = $('tokenInput').value.trim();
+    if (!v) { showErr('⚠️ 请输入 Token。'); return; }
+    localStorage.setItem(TOKEN_KEY, v);
+    refreshAll();
+  });
+
+  $('tokenInput').addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') $('saveTokenBtn').click();
+  });
+
+  /* ---------- 初始化 ---------- */
+  $('tokenInput').value = getToken();
+  refreshAll();
+})();
+</script>
+</body>
+</html>

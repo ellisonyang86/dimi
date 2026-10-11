@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 启动页：品牌黛绿纯色底（kDimiPrimary），Flutter 首帧前的占位背景 -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:drawable="@color/dimi_launch_bg" />
+</layer-list>

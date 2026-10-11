@@ -1,0 +1,10 @@
+# Release 签名配置模板。
+# 使用：复制本文件为 android/key.properties 并填入真实值（key.properties 与
+# *.keystore 均已 gitignore，不入库）。
+# 当前仓库内的 dimi-release.keystore 仅为开发/内测占位证书；
+# 正式上架前必须自行生成并妥善保管正式签名证书（丢失将无法更新已上架应用），
+# 密码建议从密钥管理服务读取而非明文落盘。
+storePassword=CHANGE_ME
+keyPassword=CHANGE_ME
+keyAlias=dimi
+storeFile=dimi-release.keystore
